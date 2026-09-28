@@ -89,6 +89,38 @@ create table if not exists public.auction_crawl_runs (
  is_complete_snapshot boolean not null default false
 );
 
+
+create table if not exists public.insolvency_events (
+ id bigint primary key,
+ case_number text not null,
+ published_at timestamptz,
+ description text not null default '',
+ document_url text,
+ verdict text,
+ first_seen_at timestamptz not null default now()
+);
+create index if not exists insolvency_events_case_idx on public.insolvency_events(case_number);
+create index if not exists insolvency_events_published_idx on public.insolvency_events(published_at desc);
+
+create table if not exists public.insolvency_findings (
+ id bigint generated always as identity primary key,
+ event_id bigint not null references public.insolvency_events(id) on delete cascade,
+ case_number text not null,
+ published_at timestamptz,
+ detected_at timestamptz not null default now(),
+ district text, city text, kind text, title_deed_number text, parcel_number text,
+ description text not null default '', document_url text,
+ unique (event_id)
+);
+create index if not exists insolvency_findings_detected_idx on public.insolvency_findings(detected_at desc);
+create index if not exists insolvency_findings_location_idx on public.insolvency_findings(district,city);
+
+create table if not exists public.collector_state (
+ key text primary key,
+ value text not null,
+ updated_at timestamptz not null default now()
+);
+
 create table if not exists public.user_profiles (
  user_id uuid primary key references auth.users(id) on delete cascade,
  display_name text, home_region text default 'Moravskoslezský kraj',
@@ -114,6 +146,13 @@ alter table public.auction_documents enable row level security;
 alter table public.auction_photos enable row level security;
 alter table public.auction_changes enable row level security;
 alter table public.auction_crawl_runs enable row level security;
+
+alter table public.insolvency_events enable row level security;
+alter table public.insolvency_findings enable row level security;
+alter table public.collector_state enable row level security;
+create policy insolvency_events_read on public.insolvency_events for select to authenticated using (true);
+create policy insolvency_findings_read on public.insolvency_findings for select to authenticated using (true);
+grant select on public.insolvency_events, public.insolvency_findings to authenticated;
 alter table public.user_profiles enable row level security;
 alter table public.user_favorites enable row level security;
 alter table public.saved_filters enable row level security;
