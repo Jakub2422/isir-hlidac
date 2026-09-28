@@ -86,8 +86,11 @@ create table if not exists public.auction_crawl_runs (
  source_id uuid not null references public.auction_sources(id),
  started_at timestamptz not null default now(), completed_at timestamptz,
  success boolean, fetched_count integer not null default 0, error text,
- is_complete_snapshot boolean not null default false
+ is_complete_snapshot boolean not null default false,
+ metadata jsonb not null default '{}'::jsonb
 );
+create index if not exists auction_crawl_runs_source_started_idx
+ on public.auction_crawl_runs(source_id,started_at desc);
 
 
 create table if not exists public.insolvency_events (
@@ -165,6 +168,7 @@ create policy occurrences_read on public.auction_occurrences for select to authe
 create policy documents_read on public.auction_documents for select to authenticated using (true);
 create policy photos_read on public.auction_photos for select to authenticated using (true);
 create policy changes_read on public.auction_changes for select to authenticated using (true);
+create policy crawl_runs_read on public.auction_crawl_runs for select to authenticated using (true);
 create policy own_profile on public.user_profiles for all to authenticated
  using ((select auth.uid())=user_id) with check ((select auth.uid())=user_id);
 create policy own_favorites on public.user_favorites for all to authenticated
@@ -174,7 +178,7 @@ create policy own_filters on public.saved_filters for all to authenticated
 
 grant select on public.auction_sources, public.auction_parties, public.auctions,
  public.auction_assets, public.auction_occurrences, public.auction_documents,
- public.auction_photos, public.auction_changes to authenticated;
+ public.auction_photos, public.auction_changes, public.auction_crawl_runs to authenticated;
 grant select,insert,update,delete on public.user_profiles, public.user_favorites,
  public.saved_filters to authenticated;
 -- Řádková práva a zápis do katalogu se ověřují až při nasazení do projektu.
@@ -225,3 +229,53 @@ create policy own_notification_queue on public.notification_queue for select to 
  ));
 grant select,insert,update,delete on public.alert_rules to authenticated;
 grant select on public.notification_queue to authenticated;
+
+
+-- Missing/disappeared state may be advanced only after a complete successful
+-- snapshot of one source. Partial/failed crawls must never hide listings.
+create or replace function public.finalize_auction_crawl(
+ p_run_id bigint,
+ p_seen_occurrence_ids uuid[],
+ p_completed_at timestamptz default now()
+) returns void
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+ v_source uuid;
+ v_success boolean;
+ v_complete boolean;
+begin
+ select source_id, success, is_complete_snapshot
+ into v_source, v_success, v_complete
+ from public.auction_crawl_runs where id=p_run_id for update;
+
+ if v_source is null then raise exception 'crawl run not found'; end if;
+ if coalesce(v_success,false) is not true or coalesce(v_complete,false) is not true then
+   raise exception 'only successful complete snapshots can finalize missing state';
+ end if;
+
+ update public.auction_occurrences
+ set last_seen_at=p_completed_at, missing_since=null
+ where source_id=v_source and id=any(coalesce(p_seen_occurrence_ids,'{}'::uuid[]));
+
+ update public.auction_occurrences
+ set missing_since=coalesce(missing_since,p_completed_at)
+ where source_id=v_source
+   and not (id=any(coalesce(p_seen_occurrence_ids,'{}'::uuid[])));
+
+ update public.auctions a
+ set missing_since = case
+   when exists(select 1 from public.auction_occurrences o where o.auction_id=a.id and o.missing_since is null)
+     then null
+   else coalesce(a.missing_since,p_completed_at)
+ end,
+ last_updated_at=p_completed_at
+ where exists(select 1 from public.auction_occurrences o where o.auction_id=a.id and o.source_id=v_source);
+
+ update public.auction_crawl_runs set completed_at=p_completed_at where id=p_run_id;
+ update public.auction_sources set last_success_at=p_completed_at,last_error=null where id=v_source;
+end;
+$$;
+revoke all on function public.finalize_auction_crawl(bigint,uuid[],timestamptz) from public, anon, authenticated;
