@@ -12,7 +12,7 @@ export type AuctionObservation=Listing&{
 
 function normalized(value?:string){return (value||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLocaleLowerCase('cs-CZ').replace(/[^a-z0-9]+/g,' ').trim()}
 function day(value?:string){if(!value)return '';const m=/^(\d{4}-\d\d-\d\d)/.exec(value);return m?.[1]||''}
-function stableUrl(value:string){try{const u=new URL(value);u.hash='';for(const key of [...u.searchParams.keys()]){if(/^(utm_.+|fbclid|gclid)$/i.test(key))u.searchParams.delete(key)}u.searchParams.sort();return u.toString().replace(/\/$/,'')}catch{return value}}
+export function stableUrl(value:string){try{const u=new URL(value);u.hash='';for(const key of [...u.searchParams.keys()]){if(/^(utm_.+|fbclid|gclid)$/i.test(key))u.searchParams.delete(key)}u.searchParams.sort();return u.toString().replace(/\/$/,'')}catch{return value}}
 
 /** A weak title match must never merge two distinct lots. */
 export function matchEvidence(a:AuctionObservation,b:AuctionObservation):string|null{
@@ -28,6 +28,12 @@ export function matchEvidence(a:AuctionObservation,b:AuctionObservation):string|
 }
 
 export function sourceKey(x:AuctionObservation){return `${normalized(x.source)}:${x.externalId||stableUrl(x.url)}`}
+export function canonicalKey(x:AuctionObservation){
+ const category=classify(x.title,x.category);
+ if(x.vin)return `${category}:vin:${normalized(x.vin)}`;
+ if(x.parcel&&x.cadastralArea)return `${category}:parcel:${normalized(x.cadastralArea)}:${normalized(x.parcel)}`;
+ return `${category}:source:${sourceKey(x)}`;
+}
 export function classify(title:string,sourceCategory?:string):AuctionCategory{
  if(sourceCategory==='real_estate'||sourceCategory==='vehicle')return sourceCategory;
  if(/(?:byt|dům|domu|pozem|nemovit|parcel|stavb|garáž|chalup|chata|budov|jednotk)/i.test(title))return 'real_estate';
