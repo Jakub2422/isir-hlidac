@@ -28,7 +28,7 @@
 2. `GET /api/auctions` vrací maximálně 250 položek a neprovádí stránkování zdrojů. Klient přepočítává dnešní počet jen z vrácených položek; může se lišit od serverového součtu.
 3. Seznam nepoužívá strukturované údaje pro auta, oceňovací ceny, GPS, parcely, LV, dražebníky nebo dokumenty. Parsování krajů z názvu může minout malé obce.
 4. ISIR synchronizace se spouští při návštěvě stránky, nikoliv jako samostatná naplánovaná práce. Přesun na Vercel vyžaduje náhradu hlavičkového přihlášení; samotná změna hostingu by zrušila ochranu uživatelských funkcí.
-5. Dosavadní Git remote je úložiště hostingu Sites. Připojený GitHub účet `Jakub2422` ukazuje **0 repozitářů a 0 instalací aplikace GitHub**, tudíž není kam zdrojový kód bezpečně zapsat. Připojený Supabase ukazuje jednu organizaci a **0 projektů**. Vercel zatím nevrátil žádný tým.
+5. Stav přístupů se změnil: existující aplikace je nyní bezpečně importovaná do GitHub repozitáře `Jakub2422/isir-hlidac` a konektor má právo zápisu. Supabase stále vrací **0 projektů** a Vercel **0 týmů**, takže databázové a produkční nasazení je zatím blokované pouze těmito externími prostředími.
 
 ## Pořadí převodu bez přerušení funkční verze
 
@@ -37,3 +37,11 @@
 3. Přesunout načítání mimo požadavky návštěvníků; každou nabídku uložit s okamžikem prvního a posledního zjištění a vazbou na všechny zdroje.
 4. Zavést opatrné slučování podle jednoznačných údajů a audit změn. Zmizelé nabídky označovat až po úplném úspěšném průchodu příslušného zdroje.
 5. Postavit z databáze filtry, detail, dnešní počty v kategoriích a osobní funkce. Teprve po ověření přesunout provoz na Vercel. Starý Site zůstává dostupný po dobu převodu.
+
+
+## Aktualizace 28. 9. 2026
+
+- GitHub repozitář je dostupný a obsahuje import existující nasazené Site verze 17.
+- Produkční Supabase schéma nyní obsahuje i pravidla upozornění a idempotentní frontu notifikací.
+- Identita dražeb byla zpřesněna: normalizuje název zdroje, odstraňuje trackingové parametry URL a stabilně řadí query parametry. Regresní testy byly rozšířeny.
+- Běžící Site nebyl těmito změnami přepnut na nové schéma; změny jsou příprava pro bezpečný převod.
