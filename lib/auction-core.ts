@@ -10,8 +10,8 @@ export type AuctionObservation=Listing&{
  photos?:string[];description?:string;
 };
 
-function normalized(value?:string){return (value||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLocaleLowerCase('cs-CZ').replace(/[^a-z0-9]+/g,' ').trim()}
-function day(value?:string){if(!value)return '';const m=/^(\d{4}-\d\d-\d\d)/.exec(value);return m?.[1]||''}
+export function normalized(value?:string){return (value||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLocaleLowerCase('cs-CZ').replace(/[^a-z0-9]+/g,' ').trim()}
+export function day(value?:string){if(!value)return '';const m=/^(\d{4}-\d\d-\d\d)/.exec(value);return m?.[1]||''}
 export function stableUrl(value:string){try{const u=new URL(value);u.hash='';for(const key of [...u.searchParams.keys()]){if(/^(utm_.+|fbclid|gclid)$/i.test(key))u.searchParams.delete(key)}u.searchParams.sort();return u.toString().replace(/\/$/,'')}catch{return value}}
 
 /** A weak title match must never merge two distinct lots. */
