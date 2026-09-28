@@ -12,11 +12,11 @@ export type AuctionObservation=Listing&{
 
 function normalized(value?:string){return (value||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLocaleLowerCase('cs-CZ').replace(/[^a-z0-9]+/g,' ').trim()}
 function day(value?:string){if(!value)return '';const m=/^(\d{4}-\d\d-\d\d)/.exec(value);return m?.[1]||''}
-function stableUrl(value:string){try{const u=new URL(value);u.hash='';u.searchParams.forEach((_,key)=>{if(/^(utm_|fbclid|gclid)/.test(key))u.searchParams.delete(key)});return u.toString().replace(/\/$/,'')}catch{return value}}
+function stableUrl(value:string){try{const u=new URL(value);u.hash='';for(const key of [...u.searchParams.keys()]){if(/^(utm_.+|fbclid|gclid)$/i.test(key))u.searchParams.delete(key)}u.searchParams.sort();return u.toString().replace(/\/$/,'')}catch{return value}}
 
 /** A weak title match must never merge two distinct lots. */
 export function matchEvidence(a:AuctionObservation,b:AuctionObservation):string|null{
- if(a.source===b.source&&a.externalId&&b.externalId&&a.externalId===b.externalId)return 'source_id';
+ if(normalized(a.source)===normalized(b.source)&&a.externalId&&b.externalId&&a.externalId===b.externalId)return 'source_id';
  if(stableUrl(a.url)===stableUrl(b.url))return 'source_url';
  const sameDay=!!day(a.auctionAt||a.date)&&day(a.auctionAt||a.date)===day(b.auctionAt||b.date);
  const sameParty=!!normalized(a.partyRegistration||a.partyName)&&normalized(a.partyRegistration||a.partyName)===normalized(b.partyRegistration||b.partyName);
