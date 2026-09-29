@@ -282,13 +282,20 @@ begin
    and not (id=any(coalesce(p_seen_occurrence_ids,'{}'::uuid[])));
 
  update public.auctions a
- set missing_since = case
-   when exists(select 1 from public.auction_occurrences o where o.auction_id=a.id and o.missing_since is null)
-     then null
-   else coalesce(a.missing_since,p_completed_at)
- end,
- last_updated_at=p_completed_at
- where exists(select 1 from public.auction_occurrences o where o.auction_id=a.id and o.source_id=v_source);
+ set missing_since = desired.missing_since,
+     last_updated_at=p_completed_at
+ from (
+   select a2.id,
+     case
+       when exists(select 1 from public.auction_occurrences o where o.auction_id=a2.id and o.missing_since is null)
+         then null
+       else coalesce(a2.missing_since,p_completed_at)
+     end as missing_since
+   from public.auctions a2
+   where exists(select 1 from public.auction_occurrences o where o.auction_id=a2.id and o.source_id=v_source)
+ ) desired
+ where a.id=desired.id
+   and a.missing_since is distinct from desired.missing_since;
 
  update public.auction_crawl_runs set completed_at=p_completed_at where id=p_run_id;
  update public.auction_sources set last_success_at=p_completed_at,last_error=null where id=v_source;
