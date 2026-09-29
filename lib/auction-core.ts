@@ -22,7 +22,8 @@ export function matchEvidence(a:AuctionObservation,b:AuctionObservation):string|
  const sameDay=!!day(a.auctionAt||a.date)&&day(a.auctionAt||a.date)===day(b.auctionAt||b.date);
  const sameParty=!!normalized(a.partyRegistration||a.partyName)&&normalized(a.partyRegistration||a.partyName)===normalized(b.partyRegistration||b.partyName);
  if(!sameDay||!sameParty)return null;
- const aVin=normalizedVin(a.vin),bVin=normalizedVin(b.vin);\n if(aVin&&bVin&&aVin===bVin)return 'vin_day_party';
+ const aVin=normalizedVin(a.vin),bVin=normalizedVin(b.vin);
+ if(aVin&&bVin&&aVin===bVin)return 'vin_day_party';
  if(a.parcel&&b.parcel&&a.cadastralArea&&b.cadastralArea&&normalized(a.parcel)===normalized(b.parcel)&&normalized(a.cadastralArea)===normalized(b.cadastralArea))return 'parcel_day_party';
  if(a.address&&b.address&&normalized(a.address)===normalized(b.address)&&a.openingPrice!=null&&a.openingPrice===b.openingPrice)return 'address_day_party_price';
  return null;
@@ -31,7 +32,8 @@ export function matchEvidence(a:AuctionObservation,b:AuctionObservation):string|
 export function sourceKey(x:AuctionObservation){return `${normalized(x.source)}:${x.externalId||stableUrl(x.url)}`}
 export function canonicalKey(x:AuctionObservation){
  const category=classify(x.title,x.category);
- const vin=normalizedVin(x.vin);\n if(vin)return `${category}:vin:${vin}`;
+ const vin=normalizedVin(x.vin);
+ if(vin)return `${category}:vin:${vin}`;
  if(x.parcel&&x.cadastralArea)return `${category}:parcel:${normalized(x.cadastralArea)}:${normalized(x.parcel)}`;
  return `${category}:source:${sourceKey(x)}`;
 }
