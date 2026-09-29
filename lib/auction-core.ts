@@ -15,6 +15,12 @@ export function day(value?:string){if(!value)return '';const m=/^(\d{4}-\d\d-\d\
 export function normalizedVin(value?:string){const vin=(value||'').toUpperCase().replace(/[^A-Z0-9]/g,'');return /^[A-HJ-NPR-Z0-9]{17}$/.test(vin)?vin:''}
 export function stableUrl(value:string){try{const u=new URL(value);u.hash='';for(const key of [...u.searchParams.keys()]){if(/^(utm_.+|fbclid|gclid)$/i.test(key))u.searchParams.delete(key)}u.searchParams.sort();return u.toString().replace(/\/$/,'')}catch{return value}}
 
+function auctionContext(x:AuctionObservation){
+ const auctionDay=day(x.auctionAt||x.date);
+ const party=normalized(x.partyRegistration||x.partyName);
+ return auctionDay&&party? `${auctionDay}:${party}` : '';
+}
+
 /** A weak title match must never merge two distinct lots. */
 export function matchEvidence(a:AuctionObservation,b:AuctionObservation):string|null{
  if(normalized(a.source)===normalized(b.source)&&a.externalId&&b.externalId&&a.externalId===b.externalId)return 'source_id';
@@ -32,9 +38,10 @@ export function matchEvidence(a:AuctionObservation,b:AuctionObservation):string|
 export function sourceKey(x:AuctionObservation){return `${normalized(x.source)}:${x.externalId||stableUrl(x.url)}`}
 export function canonicalKey(x:AuctionObservation){
  const category=classify(x.title,x.category);
+ const context=auctionContext(x);
  const vin=normalizedVin(x.vin);
- if(vin)return `${category}:vin:${vin}`;
- if(x.parcel&&x.cadastralArea)return `${category}:parcel:${normalized(x.cadastralArea)}:${normalized(x.parcel)}`;
+ if(context&&vin)return `${category}:vin:${vin}:${context}`;
+ if(context&&x.parcel&&x.cadastralArea)return `${category}:parcel:${normalized(x.cadastralArea)}:${normalized(x.parcel)}:${context}`;
  return `${category}:source:${sourceKey(x)}`;
 }
 export function classify(title:string,sourceCategory?:string):AuctionCategory{
