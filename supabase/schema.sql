@@ -153,26 +153,40 @@ alter table public.auction_crawl_runs enable row level security;
 alter table public.insolvency_events enable row level security;
 alter table public.insolvency_findings enable row level security;
 alter table public.collector_state enable row level security;
+drop policy if exists insolvency_events_read on public.insolvency_events;
 create policy insolvency_events_read on public.insolvency_events for select to authenticated using (true);
+drop policy if exists insolvency_findings_read on public.insolvency_findings;
 create policy insolvency_findings_read on public.insolvency_findings for select to authenticated using (true);
 grant select on public.insolvency_events, public.insolvency_findings to authenticated;
 alter table public.user_profiles enable row level security;
 alter table public.user_favorites enable row level security;
 alter table public.saved_filters enable row level security;
 
+drop policy if exists sources_read on public.auction_sources;
 create policy sources_read on public.auction_sources for select to authenticated using (true);
+drop policy if exists parties_read on public.auction_parties;
 create policy parties_read on public.auction_parties for select to authenticated using (true);
+drop policy if exists auctions_read on public.auctions;
 create policy auctions_read on public.auctions for select to authenticated using (true);
+drop policy if exists assets_read on public.auction_assets;
 create policy assets_read on public.auction_assets for select to authenticated using (true);
+drop policy if exists occurrences_read on public.auction_occurrences;
 create policy occurrences_read on public.auction_occurrences for select to authenticated using (true);
+drop policy if exists documents_read on public.auction_documents;
 create policy documents_read on public.auction_documents for select to authenticated using (true);
+drop policy if exists photos_read on public.auction_photos;
 create policy photos_read on public.auction_photos for select to authenticated using (true);
+drop policy if exists changes_read on public.auction_changes;
 create policy changes_read on public.auction_changes for select to authenticated using (true);
+drop policy if exists crawl_runs_read on public.auction_crawl_runs;
 create policy crawl_runs_read on public.auction_crawl_runs for select to authenticated using (true);
+drop policy if exists own_profile on public.user_profiles;
 create policy own_profile on public.user_profiles for all to authenticated
  using ((select auth.uid())=user_id) with check ((select auth.uid())=user_id);
+drop policy if exists own_favorites on public.user_favorites;
 create policy own_favorites on public.user_favorites for all to authenticated
  using ((select auth.uid())=user_id) with check ((select auth.uid())=user_id);
+drop policy if exists own_filters on public.saved_filters;
 create policy own_filters on public.saved_filters for all to authenticated
  using ((select auth.uid())=user_id) with check ((select auth.uid())=user_id);
 
@@ -220,8 +234,10 @@ create index if not exists notification_queue_pending_idx
 
 alter table public.alert_rules enable row level security;
 alter table public.notification_queue enable row level security;
+drop policy if exists own_alert_rules on public.alert_rules;
 create policy own_alert_rules on public.alert_rules for all to authenticated
  using ((select auth.uid())=user_id) with check ((select auth.uid())=user_id);
+drop policy if exists own_notification_queue on public.notification_queue;
 create policy own_notification_queue on public.notification_queue for select to authenticated
  using (exists (
    select 1 from public.alert_rules r
