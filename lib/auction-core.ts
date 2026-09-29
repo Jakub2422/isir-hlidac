@@ -12,6 +12,7 @@ export type AuctionObservation=Listing&{
 
 export function normalized(value?:string){return (value||'').normalize('NFD').replace(/[\u0300-\u036f]/g,'').toLocaleLowerCase('cs-CZ').replace(/[^a-z0-9]+/g,' ').trim()}
 export function day(value?:string){if(!value)return '';const m=/^(\d{4}-\d\d-\d\d)/.exec(value);return m?.[1]||''}
+export function normalizedVin(value?:string){return (value||'').toUpperCase().replace(/[^A-Z0-9]/g,'')}
 export function stableUrl(value:string){try{const u=new URL(value);u.hash='';for(const key of [...u.searchParams.keys()]){if(/^(utm_.+|fbclid|gclid)$/i.test(key))u.searchParams.delete(key)}u.searchParams.sort();return u.toString().replace(/\/$/,'')}catch{return value}}
 
 /** A weak title match must never merge two distinct lots. */
@@ -21,7 +22,7 @@ export function matchEvidence(a:AuctionObservation,b:AuctionObservation):string|
  const sameDay=!!day(a.auctionAt||a.date)&&day(a.auctionAt||a.date)===day(b.auctionAt||b.date);
  const sameParty=!!normalized(a.partyRegistration||a.partyName)&&normalized(a.partyRegistration||a.partyName)===normalized(b.partyRegistration||b.partyName);
  if(!sameDay||!sameParty)return null;
- if(a.vin&&b.vin&&normalized(a.vin)===normalized(b.vin))return 'vin_day_party';
+ if(a.vin&&b.vin&&normalizedVin(a.vin)===normalizedVin(b.vin))return 'vin_day_party';
  if(a.parcel&&b.parcel&&a.cadastralArea&&b.cadastralArea&&normalized(a.parcel)===normalized(b.parcel)&&normalized(a.cadastralArea)===normalized(b.cadastralArea))return 'parcel_day_party';
  if(a.address&&b.address&&normalized(a.address)===normalized(b.address)&&a.openingPrice!=null&&a.openingPrice===b.openingPrice)return 'address_day_party_price';
  return null;
@@ -30,7 +31,7 @@ export function matchEvidence(a:AuctionObservation,b:AuctionObservation):string|
 export function sourceKey(x:AuctionObservation){return `${normalized(x.source)}:${x.externalId||stableUrl(x.url)}`}
 export function canonicalKey(x:AuctionObservation){
  const category=classify(x.title,x.category);
- if(x.vin)return `${category}:vin:${normalized(x.vin)}`;
+ if(x.vin)return `${category}:vin:${normalizedVin(x.vin)}`;
  if(x.parcel&&x.cadastralArea)return `${category}:parcel:${normalized(x.cadastralArea)}:${normalized(x.parcel)}`;
  return `${category}:source:${sourceKey(x)}`;
 }
