@@ -232,6 +232,17 @@ create table if not exists public.notification_queue (
 create index if not exists notification_queue_pending_idx
  on public.notification_queue(status,queued_at) where status in ('pending','failed');
 
+-- Notification identity is event-scoped: a listing may legitimately notify again
+-- after a later change/cancellation/republish, while retries of the same event stay idempotent.
+alter table public.notification_queue
+ add column if not exists event_type text not null default 'first_seen';
+alter table public.notification_queue
+ add column if not exists event_key text not null default 'first_seen';
+alter table public.notification_queue
+ drop constraint if exists notification_queue_alert_rule_id_auction_id_channel_key;
+create unique index if not exists notification_queue_event_unique_idx
+ on public.notification_queue(alert_rule_id,auction_id,channel,event_type,event_key);
+
 alter table public.alert_rules enable row level security;
 alter table public.notification_queue enable row level security;
 drop policy if exists own_alert_rules on public.alert_rules;
