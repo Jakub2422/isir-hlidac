@@ -313,6 +313,7 @@ begin
 end;
 $$;
 revoke all on function public.finalize_auction_crawl(bigint,uuid[],timestamptz) from public, anon, authenticated;
+grant execute on function public.finalize_auction_crawl(bigint,uuid[],timestamptz) to service_role;
 
 
 -- Idempotent seed of sources already implemented by the recovered application.
