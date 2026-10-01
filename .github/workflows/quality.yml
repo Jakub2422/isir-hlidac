@@ -23,6 +23,4 @@ jobs:
           node-version: 22.13.0
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - run: pnpm lint
-      - run: pnpm test:auction-core
-      - run: pnpm build
+      - run: pnpm check
