@@ -6,6 +6,7 @@ Keep the current Site online until the replacement deployment passes verificatio
 - Supabase project visible to the connected account.
 - Vercel project visible to the connected account.
 - Deployment environment configuration stored outside Git.
+- The Supabase service-role secret is server-only and must never use a `NEXT_PUBLIC_` variable or be committed.
 
 ## Database and cutover
 1. Apply supabase/schema.sql to the new project.
@@ -22,5 +23,5 @@ Keep the current Site online until the replacement deployment passes verificatio
 ## Safety invariants
 - A failed or partial source crawl must never mark unseen listings as disappeared.
 - Cross-source deduplication requires strong evidence; title similarity alone is insufficient.
-- Notification insertion is idempotent per alert rule, auction and channel.
+- Notification insertion is idempotent per alert rule, auction, channel, event type and event key.
 - The current ChatGPT Site remains unchanged during migration preparation.
