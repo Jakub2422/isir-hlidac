@@ -316,6 +316,19 @@ revoke all on function public.finalize_auction_crawl(bigint,uuid[],timestamptz) 
 grant execute on function public.finalize_auction_crawl(bigint,uuid[],timestamptz) to service_role;
 
 
+-- Signed-out clients do not need direct access to application tables.
+-- Keep SQL grants aligned with RLS; server collection uses the secret/service role.
+revoke all privileges on table
+ public.auction_sources, public.auction_parties, public.auctions,
+ public.auction_assets, public.auction_occurrences, public.auction_documents,
+ public.auction_photos, public.auction_changes, public.auction_crawl_runs,
+ public.insolvency_events, public.insolvency_findings, public.collector_state,
+ public.user_profiles, public.user_favorites, public.saved_filters,
+ public.alert_rules, public.notification_queue
+from anon;
+revoke all privileges on all sequences in schema public from anon;
+
+
 -- Idempotent seed of sources already implemented by the recovered application.
 insert into public.auction_sources(code,name,homepage_url,method) values
  ('cevd','CEVD','https://cevd.gov.cz','api'),
