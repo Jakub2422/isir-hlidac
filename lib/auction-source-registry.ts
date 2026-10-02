@@ -1,4 +1,4 @@
-import type {AuctionObservation} from './auction-core';
+import type {AuctionObservation} from './auction-core.ts';
 
 export const AUCTION_SOURCE_SEEDS = [
   ['cevd','CEVD','https://cevd.gov.cz','api'],
