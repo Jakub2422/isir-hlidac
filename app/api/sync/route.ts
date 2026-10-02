@@ -1,7 +1,12 @@
+import { env } from 'cloudflare:workers';
 import {database,detect,documentUrl,latestId,needsDocument,readDocument,readEvents} from '@/lib/isir';
 export const runtime='edge';
 
 export async function POST(request:Request){
+ const secret=env.SYNC_SECRET;
+ if(!secret)return Response.json({error:'Synchronizace není nakonfigurována'},{status:503});
+ const authorization=request.headers.get('authorization')||'';
+ if(authorization!==`Bearer ${secret}`)return Response.json({error:'Neautorizováno'},{status:401});
  const db=database();
  const mode=new URL(request.url).searchParams.get('mode')==='history'?'history_cursor':'cursor';
  const lockKey=`lock:${mode}`;
