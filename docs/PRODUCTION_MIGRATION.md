@@ -7,10 +7,11 @@ Keep the current Site online until the replacement deployment passes verificatio
 - Vercel project visible to the connected account.
 - Deployment environment configuration stored outside Git.
 - The Supabase service-role secret is server-only and must never use a `NEXT_PUBLIC_` variable or be committed.
+- `SYNC_SECRET` is server-only; `/api/sync` must fail closed when it is missing.
 
 ## Database and cutover
-1. Apply supabase/schema.sql to the new project.
-2. Seed auction sources.
+1. Apply every file in `supabase/migrations/` in timestamp order. Treat `supabase/schema.sql` as a readable schema snapshot, not as the production migration mechanism.
+2. Verify the seeded auction sources and their enabled state.
 3. Run collection in verification mode.
 4. Persist a small verified sample and compare it with the current Site.
 5. Enable scheduled collection and verify crawl-run history.
