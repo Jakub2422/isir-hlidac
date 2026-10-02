@@ -1,6 +1,6 @@
-import {canonicalKey,classify,stableUrl,type AuctionObservation} from './auction-core';
-import {sourceCodeFor,type AuctionSourceCode} from './auction-source-registry';
-import type {Listing} from './auction-import';
+import {canonicalKey,classify,stableUrl,type AuctionObservation} from './auction-core.ts';
+import {sourceCodeFor,type AuctionSourceCode} from './auction-source-registry.ts';
+import type {Listing} from './auction-import.ts';
 
 export type PersistableAuctionObservation={
  sourceCode:AuctionSourceCode;
