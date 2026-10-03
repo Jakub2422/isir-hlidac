@@ -40,6 +40,26 @@ export function normalizedAuctionStatus(value?:string):PersistableAuctionObserva
  return 'unknown';
 }
 
+export function externalIdFor(sourceCode:AuctionSourceCode,sourceUrl:string):string|null{
+ try{
+  const url=new URL(sourceUrl);
+  const path=url.pathname.replace(/\/+$/,'');
+  const patterns:Partial<Record<AuctionSourceCode,RegExp>>={
+   'cevd':/\/detail\/([^/]+)$/i,
+   'portal-drazeb':/\/drazba\/([^/]+)$/i,
+   'uzsvm':/\/AuctionDetail\/([^/]+)$/i,
+   'exdrazby':/\/drazba\/([^/]+)$/i,
+   'portal-elektronickych':/\/(?:drazba|auction|detail)\/([^/]+)$/i,
+   'elektronicke-drazby':/\/view\/([^/]+)$/i,
+  };
+  const match=patterns[sourceCode]?.exec(path);
+  if(match?.[1])return decodeURIComponent(match[1]);
+  if(sourceCode==='sprava-zeleznic')return url.searchParams.get('id');
+  if(sourceCode==='insolvencni-zamery')return url.searchParams.get('hash');
+ }catch{}
+ return null;
+}
+
 export function toPersistableObservation(listing:Listing):PersistableAuctionObservation|null{
  const sourceCode=sourceCodeFor(listing);
  if(!sourceCode||!listing.url||!listing.title)return null;
@@ -52,7 +72,7 @@ export function toPersistableObservation(listing:Listing):PersistableAuctionObse
  return {
   sourceCode,
   canonicalKey:canonicalKey(observation),
-  externalId:null,
+  externalId:externalIdFor(sourceCode,stableUrl(listing.url)),
   sourceUrl:stableUrl(listing.url),
   title:listing.title.trim(),
   category:classify(listing.title),
