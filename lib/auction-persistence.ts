@@ -12,6 +12,7 @@ export type AuctionPersistenceResult={
  skipped:number;
  failed:number;
  errors:Array<{url:string;error:string}>;
+ occurrences:Array<{source:string;auctionId:string;occurrenceId:string;url:string}>;
 };
 
 type RpcResult={auction_id:string;occurrence_id:string;created:boolean};
@@ -24,7 +25,7 @@ export async function persistAuctionListing(
  listing:Listing,
  config:AuctionPersistenceConfig,
  fetcher:typeof fetch=fetch,
-):Promise<{created:boolean}|null>{
+):Promise<{created:boolean;auctionId:string;occurrenceId:string}|null>{
  const item=toPersistableObservation(listing);
  if(!item)return null;
  const response=await fetcher(endpoint(config),{
@@ -53,7 +54,9 @@ export async function persistAuctionListing(
   throw new Error(`Supabase auction upsert failed (${response.status}): ${detail}`);
  }
  const rows=await response.json() as RpcResult[];
- return {created:Boolean(rows[0]?.created)};
+ const row=rows[0];
+ if(!row?.auction_id||!row.occurrence_id)throw new Error('Supabase auction upsert returned no identifiers');
+ return {created:Boolean(row.created),auctionId:row.auction_id,occurrenceId:row.occurrence_id};
 }
 
 export async function persistAuctionListings(
@@ -61,7 +64,7 @@ export async function persistAuctionListings(
  config:AuctionPersistenceConfig,
  options:{concurrency?:number;fetcher?:typeof fetch}={},
 ):Promise<AuctionPersistenceResult>{
- const result:AuctionPersistenceResult={persisted:0,created:0,skipped:0,failed:0,errors:[]};
+ const result:AuctionPersistenceResult={persisted:0,created:0,skipped:0,failed:0,errors:[],occurrences:[]};
  const concurrency=Math.max(1,Math.min(options.concurrency??6,12));
  const fetcher=options.fetcher??fetch;
  let cursor=0;
@@ -74,6 +77,7 @@ export async function persistAuctionListings(
     const saved=await persistAuctionListing(listing,config,fetcher);
     if(!saved){result.skipped++;continue}
     result.persisted++;
+    result.occurrences.push({source:listing.source,auctionId:saved.auctionId,occurrenceId:saved.occurrenceId,url:listing.url});
     if(saved.created)result.created++;
    }catch(error){
     result.failed++;
