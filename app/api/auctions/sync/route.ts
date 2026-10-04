@@ -1,5 +1,7 @@
 import {env} from 'cloudflare:workers';
 import {persistAuctionListings} from '@/lib/auction-persistence';
+import {recordAuctionCrawl} from '@/lib/auction-crawl';
+import {sourceCodeFor} from '@/lib/auction-source-registry';
 import {asis,cevd,drazbyExekutori,drazbyProst,elektronickeDrazby,exdrazby,financial,insolvencniZamery,karvina,okdrazby,portalDrazeb,portalElektronickych,prokonzulta,spravaZeleznic,uzsvm,type Listing} from '@/lib/auction-import';
 
 export const runtime='edge';
@@ -26,6 +28,7 @@ export async function POST(request:Request){
   ['DražbyProst',drazbyProst],['Elektronické dražby',elektronickeDrazby],
  ] as const;
 
+ const startedAt=new Date().toISOString();
  const settled=await Promise.allSettled(tasks.map(async([name,task])=>({name,items:await task()})));
  const listings:Listing[]=[];
  const sources:Array<{name:string;ok:boolean;count:number;error?:string}>=[];
@@ -39,13 +42,26 @@ export async function POST(request:Request){
   }
  }
 
+ const finishedAt=new Date().toISOString();
+ const config={url:supabaseUrl,secret:supabaseSecret};
+ const crawlRecords=await Promise.allSettled(sources.map(async source=>{
+  const sourceCode=sourceCodeFor({source:source.name});
+  if(!sourceCode)throw new Error(`Unregistered auction source: ${source.name}`);
+  const runId=await recordAuctionCrawl({
+   sourceCode,startedAt,finishedAt,success:source.ok,completeSnapshot:false,
+   itemsSeen:source.count,error:source.error,
+  },config);
+  return {source:source.name,runId};
+ }));
+
  const unique=[...new Map(listings.map(item=>[`${item.source}\n${item.url}`,item])).values()];
- const persistence=await persistAuctionListings(unique,{url:supabaseUrl,secret:supabaseSecret});
+ const persistence=await persistAuctionListings(unique,config);
  const allSourcesOk=sources.every(source=>source.ok);
  return Response.json({
   fetched:unique.length,
   persistence,
   sources,
+  crawlTracking:{recorded:crawlRecords.filter(x=>x.status==='fulfilled').length,failed:crawlRecords.filter(x=>x.status==='rejected').length},
   complete:allSourcesOk,
   finalizedMissing:false,
   fetchedAt:new Date().toISOString(),
