@@ -13,13 +13,15 @@
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate",
     "test:auction-core": "node --experimental-strip-types lib/auction-core.test.mjs",
-    "check": "pnpm lint && pnpm test:auction-core && pnpm test:auction-today && pnpm test:auction-observation && pnpm test:auction-persistence && pnpm test:auction-crawl && pnpm test:collector-outcome && pnpm test:postgres && pnpm build",
+    "check": "pnpm lint && pnpm typecheck && pnpm test:auction-core && pnpm test:auction-today && pnpm test:auction-observation && pnpm test:auction-persistence && pnpm test:auction-crawl && pnpm test:collector-outcome && pnpm test:postgres && pnpm test:insolvency && pnpm build",
     "test:auction-today": "node --experimental-strip-types lib/auction-today.test.mjs",
     "test:auction-observation": "node --experimental-strip-types lib/auction-observation.test.mjs",
     "test:auction-persistence": "node --experimental-strip-types lib/auction-persistence.test.mjs",
     "test:auction-crawl": "node --experimental-strip-types lib/auction-crawl.test.mjs",
     "test:postgres": "node scripts/test-postgres.mjs",
-    "test:collector-outcome": "node --experimental-strip-types lib/collector-outcome.test.mjs"
+    "test:collector-outcome": "node --experimental-strip-types lib/collector-outcome.test.mjs",
+    "typecheck": "tsc --noEmit",
+    "test:insolvency": "node --experimental-strip-types lib/insolvency-persistence.test.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

@@ -25,6 +25,18 @@ try{
   await db.exec('set role '+role);
   await assert.rejects(()=>call(true,true));
  }
+ await db.exec('set role service_role');
+ const event={id:42,spis:'KSOS 1 INS 42/2026',published_at:'2026-10-05T10:00:00Z',description:'Property',verdict:'Review'};
+ const finding={event_id:42,detected_at:'2026-10-05T10:01:00Z',district:'Ostrava',city:'Ostrava',kind:'house',lv:'12',parcel:'1/2'};
+ const save=(f=finding)=>db.query('select public.upsert_insolvency_observation($1::jsonb,$2::jsonb)',[JSON.stringify(event),f===null?null:JSON.stringify(f)]);
+ await save();await save();await save(null);
+ await assert.rejects(()=>save({...finding,event_id:43}));
+ await db.exec('reset role');
+ assert.equal((await db.query('select count(*)::int n from insolvency_events')).rows[0].n,1);
+ const saved=(await db.query('select * from insolvency_findings')).rows;
+ assert.equal(saved.length,1);assert.equal(saved[0].title_deed_number,'12');assert.equal(saved[0].parcel_number,'1/2');
+ assert.equal(saved[0].detected_at.toISOString(),'2026-10-05T10:01:00.000Z');
+ for(const role of ['anon','authenticated']){await db.exec('set role '+role);await assert.rejects(()=>save());}
  await db.exec('reset role');
  const tables=await db.query("select relname from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relkind='r' and not c.relrowsecurity");
  assert.deepEqual(tables.rows,[]);

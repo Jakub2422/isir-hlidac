@@ -5,3 +5,7 @@ site.tar.gz
 *.tsbuildinfo
 
 node_modules/
+.next/
+.wrangler/
+.env*
+!.env.example
