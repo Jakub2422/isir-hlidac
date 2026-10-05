@@ -1,6 +1,7 @@
 import {env} from 'cloudflare:workers';
 import {persistAuctionListings} from '@/lib/auction-persistence';
 import {recordAuctionCrawl} from '@/lib/auction-crawl';
+import {collectorOutcome} from '@/lib/collector-outcome';
 import {sourceCodeFor} from '@/lib/auction-source-registry';
 import {asis,cevd,drazbyExekutori,drazbyProst,elektronickeDrazby,exdrazby,financial,insolvencniZamery,karvina,okdrazby,portalDrazeb,portalElektronickych,prokonzulta,spravaZeleznic,uzsvm,type Listing} from '@/lib/auction-import';
 
@@ -56,17 +57,18 @@ export async function POST(request:Request){
 
  const unique=[...new Map(listings.map(item=>[`${item.source}\n${item.url}`,item])).values()];
  const persistence=await persistAuctionListings(unique,config);
- const allSourcesOk=sources.every(source=>source.ok);
+ const crawlTracking={recorded:crawlRecords.filter(x=>x.status==='fulfilled').length,failed:crawlRecords.filter(x=>x.status==='rejected').length};
+ const outcome=collectorOutcome(sources,persistence.failed,crawlTracking.failed);
  return Response.json({
   fetched:unique.length,
   persistence,
   sources,
-  crawlTracking:{recorded:crawlRecords.filter(x=>x.status==='fulfilled').length,failed:crawlRecords.filter(x=>x.status==='rejected').length},
-  complete:allSourcesOk,
+  crawlTracking,
+  complete:outcome.complete,
   finalizedMissing:false,
   fetchedAt:new Date().toISOString(),
  },{
-  status:persistence.failed>0?207:200,
+  status:outcome.status,
   headers:{'Cache-Control':'no-store'},
  });
 }

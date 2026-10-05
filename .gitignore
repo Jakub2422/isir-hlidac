@@ -3,3 +3,5 @@ site.tar.gz
 
 *.tar.gz
 *.tsbuildinfo
+
+node_modules/

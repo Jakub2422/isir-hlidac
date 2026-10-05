@@ -20,13 +20,14 @@ begin
  select id into v_source_id from public.auction_sources where code=p_source_code and enabled=true;
  if v_source_id is null then raise exception 'auction source not found or disabled'; end if;
  insert into public.auction_crawl_runs(
-  source_id,started_at,finished_at,success,is_complete_snapshot,items_seen,error
+  source_id,started_at,completed_at,success,is_complete_snapshot,fetched_count,error
  ) values (
   v_source_id,p_started_at,p_finished_at,p_success,
   p_success and p_is_complete_snapshot,p_items_seen,left(p_error,2000)
  ) returning id into v_run_id;
  update public.auction_sources set
   last_success_at=case when p_success then p_finished_at else last_success_at end,
+  last_error_at=case when p_success then last_error_at else p_finished_at end,
   last_error=case when p_success then null else left(coalesce(p_error,'Unknown collector error'),2000) end
  where id=v_source_id;
  return v_run_id;
