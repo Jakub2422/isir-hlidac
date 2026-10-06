@@ -10,7 +10,10 @@ export const runtime='edge';
    const persisted=await readPersistedAuctions({url:supabaseUrl,secret:supabaseSecret},{limit:500,msk});
    if(persisted.length){
     const now=new Date();
-    return Response.json({items:persisted.slice(0,250),sources:[],region:msk?'msk':'all',fetchedAt:now.toISOString(),dataSource:'supabase',today:{date:pragueDay(now),count:publishedToday(persisted,now).length,complete:true}},{headers:{'Cache-Control':'public, max-age=60'}});
+    const sourceCounts=new Map<string,number>();
+    for(const item of persisted)sourceCounts.set(item.source,(sourceCounts.get(item.source)||0)+1);
+    const persistedSources=[...sourceCounts].map(([name,count])=>({name,ok:true,count}));
+    return Response.json({items:persisted.slice(0,250),sources:persistedSources,region:msk?'msk':'all',fetchedAt:now.toISOString(),dataSource:'supabase',today:{date:pragueDay(now),count:publishedToday(persisted,now).length,complete:false}},{headers:{'Cache-Control':'public, max-age=60'}});
    }
   }catch(error){console.error('Persisted auction read failed; falling back to live sources',error)}
  }
