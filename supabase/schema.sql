@@ -329,8 +329,9 @@ from anon;
 revoke all privileges on all sequences in schema public from anon;
 
 
--- Atomically persist one normalized auction observation and its source occurrence.
--- The function is backend-only: browser roles cannot execute it.
+-- Serialize first-seen identity decisions for one canonical auction key.
+-- This closes the SELECT -> INSERT race when two collectors observe the same
+-- new auction concurrently, while keeping unrelated auctions concurrent.
 create or replace function public.upsert_auction_observation(
  p_source_code text,
  p_canonical_key text,
@@ -347,7 +348,7 @@ create or replace function public.upsert_auction_observation(
 language plpgsql
 security definer
 set search_path = public
-as $
+as $$
 declare
  v_source_id uuid;
  v_auction_id uuid;
@@ -364,20 +365,16 @@ begin
     or nullif(trim(p_title),'') is null then
    raise exception 'canonical key, source URL and title are required';
  end if;
- if p_category not in ('real_estate','vehicle','other') then
-   raise exception 'invalid auction category';
- end if;
- if p_status not in ('listed','scheduled','ongoing','postponed','cancelled','finished','unknown') then
-   raise exception 'invalid auction status';
- end if;
+ if p_category not in ('real_estate','vehicle','other') then raise exception 'invalid auction category'; end if;
+ if p_status not in ('listed','scheduled','ongoing','postponed','cancelled','finished','unknown') then raise exception 'invalid auction status'; end if;
 
- select id into v_source_id
- from public.auction_sources
- where code=p_source_code and enabled=true;
+ select id into v_source_id from public.auction_sources where code=p_source_code and enabled=true;
  if v_source_id is null then raise exception 'auction source not found or disabled'; end if;
 
- -- Source identity wins over a newly-derived canonical key. This keeps one
- -- occurrence attached to the same auction when enrichment improves later.
+ -- Transaction-scoped advisory lock. hashtextextended produces a stable bigint;
+ -- the lock is released automatically on commit/rollback.
+ perform pg_advisory_xact_lock(hashtextextended(p_canonical_key,0));
+
  if nullif(trim(p_source_external_id),'') is not null then
    select id,auction_id into v_occurrence_id,v_auction_id
    from public.auction_occurrences
@@ -390,11 +387,8 @@ begin
    where source_id=v_source_id and source_url=p_source_url
    for update;
  end if;
-
  if v_auction_id is null then
-   select id into v_auction_id
-   from public.auctions where canonical_key=p_canonical_key
-   for update;
+   select id into v_auction_id from public.auctions where canonical_key=p_canonical_key for update;
  end if;
 
  if v_auction_id is null then
@@ -433,17 +427,13 @@ begin
    end if;
 
    update public.auctions set
-     title=p_title,
-     category=p_category,
-     status=p_status,
+     title=p_title, category=p_category, status=p_status,
      primary_url=coalesce(nullif(primary_url,''),p_source_url),
      opening_price=coalesce(p_opening_price,opening_price),
      auction_at=coalesce(p_auction_at,auction_at),
      published_at=coalesce(p_published_at,published_at),
-     last_seen_at=now(),
-     last_updated_at=now(),
-     missing_since=null,
-     metadata=coalesce(metadata,'{}'::jsonb) || coalesce(p_raw_data,'{}'::jsonb)
+     last_seen_at=now(), last_updated_at=now(), missing_since=null,
+     metadata=coalesce(metadata,'{}'::jsonb)||coalesce(p_raw_data,'{}'::jsonb)
    where id=v_auction_id;
  end if;
 
@@ -458,17 +448,14 @@ begin
  else
    update public.auction_occurrences set
      source_external_id=coalesce(nullif(trim(p_source_external_id),''),source_external_id),
-     source_url=p_source_url,
-     source_status=p_status,
-     raw_data=coalesce(p_raw_data,'{}'::jsonb),
-     last_seen_at=now(),
-     missing_since=null
+     source_url=p_source_url, source_status=p_status,
+     raw_data=coalesce(p_raw_data,'{}'::jsonb), last_seen_at=now(), missing_since=null
    where id=v_occurrence_id;
  end if;
 
  return query select v_auction_id,v_occurrence_id,v_created;
 end;
-$;
+$$;
 
 revoke all on function public.upsert_auction_observation(
  text,text,text,text,text,text,text,numeric,timestamptz,timestamptz,jsonb
@@ -476,7 +463,6 @@ revoke all on function public.upsert_auction_observation(
 grant execute on function public.upsert_auction_observation(
  text,text,text,text,text,text,text,numeric,timestamptz,timestamptz,jsonb
 ) to service_role;
-
 
 -- Idempotent seed of sources already implemented by the recovered application.
 insert into public.auction_sources(code,name,homepage_url,method) values
