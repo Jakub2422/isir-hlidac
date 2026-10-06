@@ -1,5 +1,6 @@
 import { env } from 'cloudflare:workers';
 import {database,detect,documentUrl,latestId,needsDocument,readDocument,readEvents} from '@/lib/isir';
+import {mirrorInsolvencyBatch} from '@/lib/insolvency-mirror';
 export const runtime='edge';
 
 export async function POST(request:Request){
@@ -60,7 +61,13 @@ export async function POST(request:Request){
    processed++;
   }
   if(last>cursor)await db.prepare('UPDATE sync_state SET value=?,updated_at=? WHERE key=? AND CAST(value AS INTEGER) < ?').bind(String(last),new Date().toISOString(),mode,last).run();
-  return Response.json({processed,examined,found,pending:processed<all.length||all.length>=1000,cursor:last,mode});
+  let mirror:{persisted:number;cursor:number;pending:boolean;failed:number}|null=null;
+  const supabaseUrl=env.SUPABASE_URL,supabaseSecret=env.SUPABASE_SERVICE_ROLE_KEY;
+  if(supabaseUrl&&supabaseSecret){
+   try{mirror=await mirrorInsolvencyBatch(db,{url:supabaseUrl,secret:supabaseSecret})}
+   catch(e){console.error('ISIR Supabase mirror failure; D1 sync remains authoritative',e)}
+  }
+  return Response.json({processed,examined,found,pending:processed<all.length||all.length>=1000,cursor:last,mode,mirror});
  }catch(e){
   return Response.json({error:e instanceof Error?e.message:'Synchronizace selhala'},{status:503});
  }finally{
