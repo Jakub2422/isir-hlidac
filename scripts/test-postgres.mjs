@@ -3,6 +3,11 @@ import {readFile,readdir} from 'node:fs/promises';
 import {PGlite} from '@electric-sql/pglite';
 const db=new PGlite();
 try{
+ const schema=await readFile('supabase/schema.sql','utf8');
+ assert.match(schema,/create or replace function public\.upsert_auction_observation/);
+ assert.match(schema,/pg_advisory_xact_lock/);
+ assert.match(schema,/create or replace function public\.upsert_insolvency_observation/);
+ assert.doesNotMatch(schema,/\nas \$\ndeclare/);
  await db.exec(`create role anon;create role authenticated;create role service_role bypassrls;create schema auth;create table auth.users(id uuid primary key);create function auth.uid() returns uuid language sql stable as $$select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$;`);
  for(const file of (await readdir('supabase/migrations')).filter(f=>f.endsWith('.sql')).sort())await db.exec(await readFile('supabase/migrations/'+file,'utf8'));
  const call=(success,complete,count=4,start='2026-10-05T10:00:00Z',end='2026-10-05T10:01:00Z')=>db.query('select public.record_auction_crawl_run($1,$2,$3,$4,$5,$6,$7) id',['cevd',start,end,success,complete,count,success?null:'timeout']);
