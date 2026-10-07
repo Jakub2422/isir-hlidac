@@ -4,7 +4,7 @@ export type AuctionReadConfig={url:string;secret:string};
 type Source={name?:string};
 type Occurrence={source_url?:string;source_status?:string;raw_data?:Record<string,unknown>;last_seen_at?:string;auction_sources?:Source|Source[]};
 type AuctionRow={
- title?:string;status?:string;primary_url?:string;opening_price?:number|string|null;
+ id?:string;title?:string;status?:string;primary_url?:string;opening_price?:number|string|null;
  auction_at?:string|null;published_at?:string|null;metadata?:Record<string,unknown>;
  auction_occurrences?:Occurrence[];
 };
@@ -26,6 +26,7 @@ export function auctionRowToListing(row:AuctionRow):Listing|null{
  const title=text(row.title);
  if(!title||!url)return null;
  return {
+  auctionId:text(row.id)||undefined,
   source:text(raw.source)||text(sourceName)||'Uložená dražba',
   title,url,
   date:text(row.auction_at),
@@ -42,7 +43,7 @@ export async function readPersistedAuctions(
  options:{limit?:number;msk?:boolean;fetcher?:typeof fetch}={},
 ):Promise<Listing[]>{
  const limit=Math.max(1,Math.min(options.limit??250,1000));
- const select='title,status,primary_url,opening_price,auction_at,published_at,metadata,auction_occurrences(source_url,source_status,raw_data,last_seen_at,auction_sources(name))';
+ const select='id,title,status,primary_url,opening_price,auction_at,published_at,metadata,auction_occurrences(source_url,source_status,raw_data,last_seen_at,auction_sources(name))';
  const url=`${config.url.replace(/\/$/,'')}/rest/v1/auctions?select=${encodeURIComponent(select)}&order=published_at.desc.nullslast,last_seen_at.desc&limit=${limit}`;
  const response=await (options.fetcher??fetch)(url,{headers:{apikey:config.secret,Authorization:`Bearer ${config.secret}`}});
  if(!response.ok)throw new Error(`Supabase auction read failed (${response.status}): ${(await response.text()).slice(0,500)}`);
