@@ -526,6 +526,8 @@ insert into public.auction_sources(code,name,homepage_url,method) values
  ('karvina','Aukce města Karviná','https://aukce.karvina.cz','html'),
  ('portal-elektronickych','Portál elektronických dražeb','https://www.portal-elektronickych-drazeb.cz','html'),
  ('drazbyprost','DražbyProst','https://www.drazbyprost.cz','html'),
- ('elektronicke-drazby','Elektronické dražby','https://www.elektronickedrazby.cz','html')
+ ('elektronicke-drazby','Elektronické dražby','https://www.elektronickedrazby.cz','html'),
+ ('burza-spravcu','Burza správců – nemovitosti','https://www.burzaspravcu.cz/kategorie/nemovite-veci/','html'),
+ ('exekutor-ostrava','Exekutorský úřad Ostrava','https://www.eurad-ova.cz/sitemap.xml?typ=rss','rss')
 on conflict (code) do update set
  name=excluded.name, homepage_url=excluded.homepage_url, method=excluded.method;
