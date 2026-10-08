@@ -83,3 +83,19 @@ export async function burzaSpravcu():Promise<Listing[]>{
  }
  return unique(out);
 }
+
+/** Official RSS feed of Exekutorský úřad Ostrava; restrict to real estate. */
+export async function exekutorOstrava():Promise<Listing[]>{
+ const base='https://www.eurad-ova.cz/sitemap.xml?typ=rss';
+ const {body}=await get(base,2_000_000);
+ if(!/<rss\\b|<rdf:RDF\\b/i.test(body))throw Error('Neplatný RSS exekutora Ostrava');
+ const out:Listing[]=[];
+ for(const m of body.matchAll(/<item\\b[^>]*>([\\s\\S]*?)<\\/item>/gi)){
+  const field=(name:string)=>decode(new RegExp('<'+name+'(?:\\\\s[^>]*)?>([\\\\s\\\\S]*?)<\\\\/'+name+'>','i').exec(m[1])?.[1]||'');
+  const title=field('title'),description=field('description');
+  const url=safeLink(field('link'),base);
+  if(!property.test(title+' '+description)||!url.startsWith('https://www.eurad-ova.cz/'))continue;
+  out.push({source:'Exekutorský úřad Ostrava',title:title||description.slice(0,120),url,date:'',published:field('pubDate'),price:'',location:title+' '+description.slice(0,150),msk:region.test(title+' '+description),status:'Zveřejněno exekutorem'});
+ }
+ return unique(out);
+}
