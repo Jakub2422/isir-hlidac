@@ -19,12 +19,12 @@ revoke all on public.owner_favorites, public.owner_saved_filters from anon, auth
 grant select, insert, update, delete on public.owner_favorites, public.owner_saved_filters to service_role;
 
 create or replace function public.touch_owner_saved_filter_updated_at()
-returns trigger language plpgsql set search_path = public as $
+returns trigger language plpgsql set search_path = public as $body$
 begin
  new.updated_at = now();
  return new;
 end;
-$;
+$body$;
 
 drop trigger if exists owner_saved_filters_updated_at on public.owner_saved_filters;
 create trigger owner_saved_filters_updated_at before update on public.owner_saved_filters
