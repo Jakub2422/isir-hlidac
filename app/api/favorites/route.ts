@@ -3,7 +3,12 @@ import {getChatGPTUser} from '@/app/chatgpt-auth';
 import {addFavorite,listFavoriteIds,removeFavorite} from '@/lib/owner-storage';
 
 export const runtime='edge';
-const config=()=>({url:env.SUPABASE_URL,secret:env.SUPABASE_SERVICE_ROLE_KEY});
+const config=()=>{
+ const url=env.SUPABASE_URL;
+ const secret=env.SUPABASE_SERVICE_ROLE_KEY;
+ if(!url||!secret)throw new Error('Supabase owner storage není nakonfigurováno');
+ return {url,secret};
+};
 const unauthorized=()=>Response.json({error:'Neautorizováno'},{status:401});
 
 export async function GET(){
