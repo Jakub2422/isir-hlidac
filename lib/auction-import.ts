@@ -69,3 +69,17 @@ export async function drazbyExekutori():Promise<Listing[]>{
  }
  return unique(out);
 }
+
+/** Insolvency administrators' own marketplace: property sale tenders (not necessarily auctions). */
+export async function burzaSpravcu():Promise<Listing[]>{
+ const base='https://www.burzaspravcu.cz/kategorie/nemovite-veci/';
+ const {body}=await get(base,3_000_000);
+ const out:Listing[]=[];
+ for(const m of body.matchAll(/<a\\b[^>]*href=["'](https?:\\/\\/www\\.burzaspravcu\\.cz\\/inzerat\\/[^"']+|\\/inzerat\\/[^"']+)["'][^>]*>([\\s\\S]*?)<\\/a>/gi)){
+  const url=safeLink(m[1],base),title=decode(m[2]);
+  if(!url.startsWith('https://www.burzaspravcu.cz/inzerat/')||!title||title.length<8)continue;
+  const context=decode(body.slice(Math.max(0,m.index-300),m.index+1000));
+  out.push({source:'Burza správců – nemovitosti',title,url,date:'',published:'',price:'',location:context.slice(0,200),msk:region.test(context),status:'Nabídka zpeněžení'});
+ }
+ return unique(out);
+}
