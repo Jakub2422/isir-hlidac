@@ -12,6 +12,7 @@ export const AUCTION_SOURCE_SEEDS = [
   ['sprava-zeleznic','Správa železnic – prodej','https://www.spravazeleznic.cz','api'],
   ['prokonzulta','Prokonzulta','https://www.prokonzulta.cz','html'],
   ['asis','ASIS – insolvenční majetek','https://portal.asis.cz','html'],
+  ['exekutor-ostrava','Exekutorský úřad Ostrava','https://www.eurad-ova.cz/sitemap.xml?typ=rss','rss'],
   ['burza-spravcu','Burza správců – nemovitosti','https://www.burzaspravcu.cz/kategorie/nemovite-veci/','html'],
   ['karvina','Aukce města Karviná','https://aukce.karvina.cz','html'],
   ['portal-elektronickych','Portál elektronických dražeb','https://www.portal-elektronickych-drazeb.cz','html'],
