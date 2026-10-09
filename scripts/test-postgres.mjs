@@ -68,6 +68,25 @@ try{
  const listings=rows.map(auctionRowToListing);
  assert.equal(listings.length,34);assert.equal(listings.filter(x=>x.msk).length,4);
  assert.ok(listings.every(x=>x.auctionId&&x.title!=='Zobrazit'));
+ await db.exec('set role service_role');
+ const modified={...realListings[0],price:'1 000 000 Kč',date:'2026-11-01T10:00:00+01:00',status:'Odročená dražba'};
+ const updated=await persistAuctionListing(modified,{url:'https://local.test',secret:'test-only'},rpcFetch);
+ await persistAuctionListing(modified,{url:'https://local.test',secret:'test-only'},rpcFetch);
+ await db.query('insert into owner_favorites(auction_id) values($1) on conflict do nothing',[updated.auctionId]);
+ await db.query('insert into owner_favorites(auction_id) values($1) on conflict do nothing',[updated.auctionId]);
+ assert.equal((await db.query('select count(*)::int n from owner_favorites')).rows[0].n,1);
+ const filterId=(await db.query("insert into owner_saved_filters(name,criteria) values('Ostrava',$1::jsonb) returning id",[JSON.stringify({location:'Ostrava',minPrice:100000})])).rows[0].id;
+ await db.query('update owner_saved_filters set active=false where id=$1',[filterId]);
+ assert.equal((await db.query('select active from owner_saved_filters where id=$1',[filterId])).rows[0].active,false);
+ await db.exec('reset role');
+ assert.deepEqual((await db.query('select field_name from auction_changes where auction_id=$1 order by field_name',[updated.auctionId])).rows.map(x=>x.field_name),['auctionAt','openingPrice','status']);
+ for(const role of ['anon','authenticated']){
+  await db.exec('set role '+role);
+  await assert.rejects(()=>db.query('select * from owner_favorites'));
+  await assert.rejects(()=>db.query('select * from owner_saved_filters'));
+ }
+ await db.exec('reset role');
+ console.log('Price/date/status history, favorite idempotency, saved filters and owner table grants passed');
  console.log('Real source fixtures → parser → normalization → persistence RPC → PostgreSQL → reader: 34 offers, repeat without duplicates, 4 MSK passed');
  const tables=await db.query("select relname from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relkind='r' and not c.relrowsecurity");
  assert.deepEqual(tables.rows,[]);

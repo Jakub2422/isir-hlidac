@@ -13,7 +13,7 @@
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate",
     "test:auction-core": "node --experimental-strip-types lib/auction-core.test.mjs",
-    "check": "pnpm lint && pnpm typecheck && pnpm test:auction-import && pnpm test:auction-core && pnpm test:auction-today && pnpm test:auction-observation && pnpm test:auction-persistence && pnpm test:auction-crawl && pnpm test:auction-reader && pnpm test:owner && pnpm test:collector-outcome && pnpm test:postgres && pnpm test:insolvency && pnpm build",
+    "check": "pnpm lint && pnpm typecheck && pnpm test:auction-import && pnpm test:auction-core && pnpm test:auction-today && pnpm test:auction-observation && pnpm test:auction-persistence && pnpm test:auction-crawl && pnpm test:auction-reader && pnpm test:owner && pnpm test:saved-filter && pnpm test:collector-outcome && pnpm test:postgres && pnpm test:insolvency && pnpm build",
     "test:auction-today": "node --experimental-strip-types lib/auction-today.test.mjs",
     "test:auction-observation": "node --experimental-strip-types lib/auction-observation.test.mjs",
     "test:auction-persistence": "node --experimental-strip-types lib/auction-persistence.test.mjs",
@@ -24,7 +24,8 @@
     "test:insolvency": "node --experimental-strip-types lib/insolvency-persistence.test.mjs",
     "test:auction-reader": "node --experimental-strip-types lib/auction-reader.test.mjs",
     "test:owner": "node --experimental-strip-types lib/owner-storage.test.mjs",
-    "test:auction-import": "node --experimental-strip-types lib/auction-import.test.mjs"
+    "test:auction-import": "node --experimental-strip-types lib/auction-import.test.mjs",
+    "test:saved-filter": "node --experimental-strip-types lib/saved-filter.test.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

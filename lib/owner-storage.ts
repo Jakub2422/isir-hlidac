@@ -22,3 +22,11 @@ export async function listSavedFilters(config:OwnerStorageConfig,fetcher:typeof 
  const response=await fetcher(base(config,'owner_saved_filters?select=id,name,criteria,active,created_at,updated_at&order=created_at.desc'),{headers:headers(config)});
  await check(response); return response.json() as Promise<SavedFilter[]>;
 }
+export async function saveOwnerFilter(config:OwnerStorageConfig,filter:{name:string;criteria:Record<string,unknown>;active:boolean},id?:string,fetcher:typeof fetch=fetch):Promise<SavedFilter>{
+ const response=await fetcher(base(config,id?`owner_saved_filters?id=eq.${encodeURIComponent(id)}`:'owner_saved_filters'),{method:id?'PATCH':'POST',headers:headers(config,{Prefer:'return=representation'}),body:JSON.stringify(filter)});
+ await check(response);const rows=await response.json() as SavedFilter[];
+ if(!rows[0])throw Error('Filtr nenalezen');return rows[0];
+}
+export async function deleteOwnerFilter(config:OwnerStorageConfig,id:string,fetcher:typeof fetch=fetch){
+ const response=await fetcher(base(config,`owner_saved_filters?id=eq.${encodeURIComponent(id)}`),{method:'DELETE',headers:headers(config)});await check(response);
+}
