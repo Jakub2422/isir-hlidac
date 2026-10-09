@@ -376,15 +376,15 @@ begin
  perform pg_advisory_xact_lock(hashtextextended(p_canonical_key,0));
 
  if nullif(trim(p_source_external_id),'') is not null then
-   select id,auction_id into v_occurrence_id,v_auction_id
-   from public.auction_occurrences
-   where source_id=v_source_id and source_external_id=p_source_external_id
+   select o.id,o.auction_id into v_occurrence_id,v_auction_id
+   from public.auction_occurrences o
+   where o.source_id=v_source_id and o.source_external_id=p_source_external_id
    for update;
  end if;
  if v_occurrence_id is null then
-   select id,auction_id into v_occurrence_id,v_auction_id
-   from public.auction_occurrences
-   where source_id=v_source_id and source_url=p_source_url
+   select o.id,o.auction_id into v_occurrence_id,v_auction_id
+   from public.auction_occurrences o
+   where o.source_id=v_source_id and o.source_url=p_source_url
    for update;
  end if;
  if v_auction_id is null then

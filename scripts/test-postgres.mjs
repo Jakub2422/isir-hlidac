@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 import {readFile,readdir} from 'node:fs/promises';
 import {PGlite} from '@electric-sql/pglite';
+import {parseBurzaSpravcu,parseExekutorOstrava} from '../lib/auction-import.ts';
+import {persistAuctionListing} from '../lib/auction-persistence.ts';
+import {auctionRowToListing} from '../lib/auction-reader.ts';
 const db=new PGlite();
 try{
  const schema=await readFile('supabase/schema.sql','utf8');
@@ -43,6 +46,29 @@ try{
  assert.equal(saved[0].detected_at.toISOString(),'2026-10-05T10:01:00.000Z');
  for(const role of ['anon','authenticated']){await db.exec('set role '+role);await assert.rejects(()=>save());}
  await db.exec('reset role');
+ const realListings=[...parseBurzaSpravcu(await readFile('lib/fixtures/burza-spravcu.html','utf8')),...parseExekutorOstrava(await readFile('lib/fixtures/exekutor-ostrava.xml','utf8'))];
+ const rpcFetch=async(_url,init)=>{
+  const body=JSON.parse(init.body);
+  const keys=['p_source_code','p_canonical_key','p_source_external_id','p_source_url','p_title','p_category','p_status','p_opening_price','p_auction_at','p_published_at','p_raw_data'];
+  const values=keys.map(k=>k==='p_raw_data'?JSON.stringify(body[k]):body[k]);
+  const result=await db.query('select * from public.upsert_auction_observation($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb)',values);
+  return Response.json(result.rows);
+ };
+ await db.exec('set role service_role');
+ for(const item of realListings){
+  const config={url:'https://local.test',secret:'test-only'};
+  const first=await persistAuctionListing(item,config,rpcFetch);
+  const repeat=await persistAuctionListing(item,config,rpcFetch);
+  assert.equal(first.created,true);assert.equal(repeat.created,false);assert.equal(first.auctionId,repeat.auctionId);
+ }
+ await db.exec('reset role');
+ assert.equal((await db.query('select count(*)::int n from auctions')).rows[0].n,34);
+ assert.equal((await db.query('select count(*)::int n from auction_occurrences')).rows[0].n,34);
+ const rows=(await db.query(`select a.*,jsonb_agg(jsonb_build_object('source_url',o.source_url,'raw_data',o.raw_data,'last_seen_at',o.last_seen_at,'auction_sources',jsonb_build_object('name',s.name))) auction_occurrences from auctions a join auction_occurrences o on o.auction_id=a.id join auction_sources s on s.id=o.source_id group by a.id`)).rows;
+ const listings=rows.map(auctionRowToListing);
+ assert.equal(listings.length,34);assert.equal(listings.filter(x=>x.msk).length,4);
+ assert.ok(listings.every(x=>x.auctionId&&x.title!=='Zobrazit'));
+ console.log('Real source fixtures → parser → normalization → persistence RPC → PostgreSQL → reader: 34 offers, repeat without duplicates, 4 MSK passed');
  const tables=await db.query("select relname from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relkind='r' and not c.relrowsecurity");
  assert.deepEqual(tables.rows,[]);
  console.log('PostgreSQL: all migrations, crawl writes, source health, validation and RPC permissions passed');

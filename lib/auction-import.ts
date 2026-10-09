@@ -71,23 +71,27 @@ export async function drazbyExekutori():Promise<Listing[]>{
 }
 
 /** Insolvency administrators' own marketplace: property sale tenders (not necessarily auctions). */
-export async function burzaSpravcu():Promise<Listing[]>{
+export function parseBurzaSpravcu(body:string):Listing[]{
  const base='https://www.burzaspravcu.cz/kategorie/nemovite-veci/';
- const {body}=await get(base,3_000_000);
  const out:Listing[]=[];
- for(const m of body.matchAll(/<a\b[^>]*href=["']([^"']*\/inzerat\/[^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi)){
+ // Only heading links are titles. Image and "Zobrazit" links share the same URL.
+ for(const m of body.matchAll(/<h[23]\b[^>]*>\s*<a\b[^>]*href=["']([^"']*\/inzerat\/[^"']+)["'][^>]*>([\s\S]*?)<\/a>\s*<\/h[23]>/gi)){
   const url=safeLink(m[1],base),title=decode(m[2]);
-  if(!url.startsWith('https://www.burzaspravcu.cz/inzerat/')||!title||title.length<8)continue;
-  const context=decode(body.slice(Math.max(0,m.index-300),m.index+1000));
-  out.push({source:'Burza správců – nemovitosti',title,url,date:'',published:'',price:'',location:context.slice(0,200),msk:region.test(context),status:'Nabídka zpeněžení'});
+  if(!url.startsWith('https://www.burzaspravcu.cz/inzerat/')||!title)continue;
+  // Do not borrow locality from neighbouring cards or the administrator's address.
+  out.push({source:'Burza správců – nemovitosti',title,url,date:'',published:'',price:'',location:title,msk:region.test(title),status:'Nabídka zpeněžení'});
  }
+ if(!out.length)throw Error('Burza správců: nelze potvrdit strukturu nebo prázdný katalog');
  return unique(out);
+}
+export async function burzaSpravcu():Promise<Listing[]>{
+ const {body}=await get('https://www.burzaspravcu.cz/kategorie/nemovite-veci/',3_000_000);
+ return parseBurzaSpravcu(body);
 }
 
 /** Official RSS feed of Exekutorský úřad Ostrava; restrict to real estate. */
-export async function exekutorOstrava():Promise<Listing[]>{
+export function parseExekutorOstrava(body:string):Listing[]{
  const base='https://www.eurad-ova.cz/sitemap.xml?typ=rss';
- const {body}=await get(base,2_000_000);
  if(!/<rss\b|<rdf:RDF\b/i.test(body))throw Error('Neplatný RSS exekutora Ostrava');
  const out:Listing[]=[];
  for(const m of body.matchAll(/<item\b[^>]*>([\s\S]*?)<\/item>/gi)){
@@ -95,7 +99,12 @@ export async function exekutorOstrava():Promise<Listing[]>{
   const title=field('title'),description=field('description');
   const url=safeLink(field('link'),base);
   if(!property.test(title+' '+description)||!url.startsWith('https://www.eurad-ova.cz/'))continue;
-  out.push({source:'Exekutorský úřad Ostrava',title:title||description.slice(0,120),url,date:'',published:field('pubDate'),price:'',location:title+' '+description.slice(0,150),msk:region.test(title+' '+description),status:'Zveřejněno exekutorem'});
+  out.push({source:'Exekutorský úřad Ostrava',title:title||description.slice(0,120),url,date:'',published:field('pubDate'),price:'',location:title+' '+description.slice(0,150),msk:region.test(title+' '+description),status:/odročen|odrocen|odlož/i.test(title)?'Odročená dražba':/zrušen|zrusen/i.test(title)?'Zrušená dražba':'Zveřejněno exekutorem'});
  }
  return unique(out);
+}
+
+export async function exekutorOstrava():Promise<Listing[]>{
+ const {body}=await get('https://www.eurad-ova.cz/sitemap.xml?typ=rss',2_000_000);
+ return parseExekutorOstrava(body);
 }
