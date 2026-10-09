@@ -18,7 +18,7 @@
     "test:auction-observation": "node --experimental-strip-types lib/auction-observation.test.mjs",
     "test:auction-persistence": "node --experimental-strip-types lib/auction-persistence.test.mjs",
     "test:auction-crawl": "node --experimental-strip-types lib/auction-crawl.test.mjs",
-    "test:postgres": "node scripts/test-postgres.mjs",
+    "test:postgres": "node --experimental-strip-types scripts/test-postgres.mjs",
     "test:collector-outcome": "node --experimental-strip-types lib/collector-outcome.test.mjs",
     "typecheck": "tsc --noEmit",
     "test:insolvency": "node --experimental-strip-types lib/insolvency-persistence.test.mjs",
