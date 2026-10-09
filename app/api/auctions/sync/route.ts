@@ -3,7 +3,7 @@ import {persistAuctionListings} from '@/lib/auction-persistence';
 import {recordAuctionCrawl} from '@/lib/auction-crawl';
 import {collectorOutcome} from '@/lib/collector-outcome';
 import {sourceCodeFor} from '@/lib/auction-source-registry';
-import {asis,cevd,drazbyExekutori,drazbyProst,elektronickeDrazby,exdrazby,financial,insolvencniZamery,karvina,okdrazby,portalDrazeb,portalElektronickych,prokonzulta,spravaZeleznic,uzsvm,type Listing} from '@/lib/auction-import';
+import {exekutorOstrava,asis,burzaSpravcu,cevd,drazbyExekutori,drazbyProst,elektronickeDrazby,exdrazby,financial,insolvencniZamery,karvina,okdrazby,portalDrazeb,portalElektronickych,prokonzulta,spravaZeleznic,uzsvm,type Listing} from '@/lib/auction-import';
 
 export const runtime='edge';
 
@@ -24,7 +24,7 @@ export async function POST(request:Request){
   ['Insolvenční záměry',insolvencniZamery],['OKdražby',okdrazby],
   ['exdrazby',()=>exdrazby(false)],['dražby-exekutoři',drazbyExekutori],
   ['Správa železnic – prodej',spravaZeleznic],['Prokonzulta',prokonzulta],
-  ['ASIS – insolvenční majetek',asis],['Aukce města Karviná',karvina],
+  ['ASIS – insolvenční majetek',asis],['Burza správců – nemovitosti',burzaSpravcu],['Exekutorský úřad Ostrava',exekutorOstrava],['Aukce města Karviná',karvina],
   ['Portál elektronických dražeb',()=>portalElektronickych(false)],
   ['DražbyProst',drazbyProst],['Elektronické dražby',elektronickeDrazby],
  ] as const;

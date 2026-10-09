@@ -376,15 +376,15 @@ begin
  perform pg_advisory_xact_lock(hashtextextended(p_canonical_key,0));
 
  if nullif(trim(p_source_external_id),'') is not null then
-   select id,auction_id into v_occurrence_id,v_auction_id
-   from public.auction_occurrences
-   where source_id=v_source_id and source_external_id=p_source_external_id
+   select o.id,o.auction_id into v_occurrence_id,v_auction_id
+   from public.auction_occurrences o
+   where o.source_id=v_source_id and o.source_external_id=p_source_external_id
    for update;
  end if;
  if v_occurrence_id is null then
-   select id,auction_id into v_occurrence_id,v_auction_id
-   from public.auction_occurrences
-   where source_id=v_source_id and source_url=p_source_url
+   select o.id,o.auction_id into v_occurrence_id,v_auction_id
+   from public.auction_occurrences o
+   where o.source_id=v_source_id and o.source_url=p_source_url
    for update;
  end if;
  if v_auction_id is null then
@@ -493,6 +493,23 @@ $$;
 revoke all on function public.upsert_insolvency_observation(jsonb,jsonb) from public,anon,authenticated;
 grant execute on function public.upsert_insolvency_observation(jsonb,jsonb) to service_role;
 
+create table if not exists public.owner_favorites (
+ auction_id uuid primary key references public.auctions(id) on delete cascade,
+ created_at timestamptz not null default now()
+);
+create table if not exists public.owner_saved_filters (
+ id uuid primary key default gen_random_uuid(), name text not null,
+ criteria jsonb not null default '{}'::jsonb, active boolean not null default true,
+ created_at timestamptz not null default now(), updated_at timestamptz not null default now()
+);
+alter table public.owner_favorites enable row level security;
+alter table public.owner_saved_filters enable row level security;
+revoke all on public.owner_favorites, public.owner_saved_filters from anon, authenticated;
+grant select, insert, update, delete on public.owner_favorites, public.owner_saved_filters to service_role;
+drop trigger if exists owner_saved_filters_updated_at on public.owner_saved_filters;
+create trigger owner_saved_filters_updated_at before update on public.owner_saved_filters
+for each row execute function public.set_updated_at();
+
 -- Idempotent seed of sources already implemented by the recovered application.
 insert into public.auction_sources(code,name,homepage_url,method) values
  ('cevd','CEVD','https://cevd.gov.cz','api'),
@@ -509,6 +526,8 @@ insert into public.auction_sources(code,name,homepage_url,method) values
  ('karvina','Aukce města Karviná','https://aukce.karvina.cz','html'),
  ('portal-elektronickych','Portál elektronických dražeb','https://www.portal-elektronickych-drazeb.cz','html'),
  ('drazbyprost','DražbyProst','https://www.drazbyprost.cz','html'),
- ('elektronicke-drazby','Elektronické dražby','https://www.elektronickedrazby.cz','html')
+ ('elektronicke-drazby','Elektronické dražby','https://www.elektronickedrazby.cz','html'),
+ ('burza-spravcu','Burza správců – nemovitosti','https://www.burzaspravcu.cz/kategorie/nemovite-veci/','html'),
+ ('exekutor-ostrava','Exekutorský úřad Ostrava','https://www.eurad-ova.cz/sitemap.xml?typ=rss','rss')
 on conflict (code) do update set
  name=excluded.name, homepage_url=excluded.homepage_url, method=excluded.method;
