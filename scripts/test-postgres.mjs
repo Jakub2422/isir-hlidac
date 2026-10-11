@@ -13,6 +13,15 @@ try{
  assert.doesNotMatch(schema,/\nas \$\ndeclare/);
  await db.exec(`create role anon;create role authenticated;create role service_role bypassrls;create schema auth;create table auth.users(id uuid primary key);create function auth.uid() returns uuid language sql stable as $$select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$;`);
  for(const file of (await readdir('supabase/migrations')).filter(f=>f.endsWith('.sql')).sort())await db.exec(await readFile('supabase/migrations/'+file,'utf8'));
+ const leaseA='11111111-1111-4111-8111-111111111111',leaseB='22222222-2222-4222-8222-222222222222';
+ await db.exec('set role service_role');
+ const acquire=async token=>(await db.query('select public.acquire_collector_lease($1,$2) ok',['auctions',token])).rows[0].ok;
+ assert.equal(await acquire(leaseA),true);assert.equal(await acquire(leaseB),false);
+ await db.query('select public.release_collector_lease($1,$2)',['auctions',leaseB]);
+ assert.equal(await acquire(leaseB),false,'wrong token cannot release lease');
+ await db.query('select public.release_collector_lease($1,$2)',['auctions',leaseA]);
+ assert.equal(await acquire(leaseB),true);
+ await db.exec('reset role');
  const call=(success,complete,count=4,start='2026-10-05T10:00:00Z',end='2026-10-05T10:01:00Z')=>db.query('select public.record_auction_crawl_run($1,$2,$3,$4,$5,$6,$7) id',['cevd',start,end,success,complete,count,success?null:'timeout']);
  await db.exec('set role service_role');
  const first=(await call(false,true)).rows[0].id;
