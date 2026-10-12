@@ -20,7 +20,7 @@ const types:Record<string,RegExp>={house:/rodinn|\bdum\b|\bdomu\b|chata|chalup/,
 export function matchesSavedFilter(item:Listing,criteria:FilterCriteria):boolean{
  const text=normalize(item.title+' '+item.location);
  if(criteria.location&&!text.includes(normalize(criteria.location)))return false;
- if(criteria.source&&item.source!==criteria.source)return false;
+ if(criteria.source&&item.source!==criteria.source&&!item.provenance?.some(p=>p.source===criteria.source))return false;
  if(criteria.propertyType&&!types[criteria.propertyType]?.test(text))return false;
  const price=parseCzk(item.price);
  if((criteria.minPrice!==null||criteria.maxPrice!==null)&&price===null)return false;

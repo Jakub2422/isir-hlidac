@@ -158,6 +158,35 @@ try{
   await assert.rejects(()=>db.query('select * from auction_alert_events'));
  }
  await db.exec('reset role');
+ // Structured evidence is synthetic; existing real fixtures have no lot identity.
+ const identity={authority:'094',officialAuctionId:'14121/21-568',proceeding:'094 EX 14121/21',notice:'568',lot:'1'};
+ const lot={source:'CEVD',url:'https://cevd.gov.cz/seznam-drazeb/detail/test-lot',title:'Rodinný dům Ostrava test',date:'2026-12-01T10:00:00Z',published:'',price:'1000000 Kč',location:'Ostrava',msk:true,status:'Published',identity};
+ const persist=x=>persistAuctionListing(x,{url:'https://local.test',secret:'test-only'},rpcFetch);
+ await db.exec('set role service_role');
+ const firstLot=await persist(lot);
+ const mirror={...lot,source:'Portál dražeb',url:'https://www.portaldrazeb.cz/drazba/test-lot',price:'900000 Kč',status:'Odročeno'};
+ const secondLot=await persist(mirror);
+ assert.equal(secondLot.auctionId,firstLot.auctionId);
+ assert.equal(secondLot.created,false);
+ assert.notEqual(secondLot.occurrenceId,firstLot.occurrenceId);
+ assert.equal((await persist(mirror)).occurrenceId,secondLot.occurrenceId);
+ assert.equal((await db.query('select opening_price from auctions where id=$1',[firstLot.auctionId])).rows[0].opening_price,'1000000.00','secondary source cannot oscillate price');
+ assert.equal((await db.query('select count(*)::int n from auction_alert_events where auction_id=$1',[firstLot.auctionId])).rows[0].n,1,'mirror replay creates no phantom change events');
+ const otherLot=await persist({...mirror,url:mirror.url+'-2',identity:{...identity,lot:'2'}});
+ assert.notEqual(otherLot.auctionId,firstLot.auctionId,'different lots in one proceeding must remain separate');
+ const weak=await persist({...mirror,url:mirror.url+'-weak',identity:{}});
+ assert.notEqual(weak.auctionId,firstLot.auctionId,'title/date/location is only a review candidate');
+ assert.ok((await db.query('select * from auction_duplicate_candidates')).rows.length>0);
+ const another=await persist({...lot,url:lot.url+'-ambiguous'});
+ assert.notEqual(another.auctionId,firstLot.auctionId,'same-source distinct item is not automatically merged');
+ const ambiguous=await persist({...mirror,source:'OKdražby',url:'https://okdrazby.cz/drazba/test-ambiguous'});
+ assert.notEqual(ambiguous.auctionId,firstLot.auctionId,'multiple matching canonical auctions are never chosen arbitrarily');
+ assert.notEqual(ambiguous.auctionId,another.auctionId);
+ const provenance=(await db.query('select source_url from auction_occurrences where auction_id=$1',[firstLot.auctionId])).rows;
+ assert.deepEqual(provenance.map(x=>x.source_url).sort(),[lot.url,mirror.url].sort());
+ await db.exec('reset role');
+ for(const role of ['anon','authenticated']){await db.exec('set role '+role);await assert.rejects(()=>db.query('select * from auction_duplicate_candidates'));await db.exec('reset role');}
+ console.log('PostgreSQL cross-source identity: merge, provenance, replay, different lots, weak/ambiguous candidates passed');
  console.log('Price/date/status history, favorite idempotency, saved filters and owner table grants passed');
  console.log('Real source fixtures → parser → normalization → persistence RPC → PostgreSQL → reader: 34 offers, repeat without duplicates, 4 MSK passed');
  const tables=await db.query("select relname from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relkind='r' and not c.relrowsecurity");

@@ -8,14 +8,14 @@ export const runtime='edge';
  if(supabaseUrl&&supabaseSecret){
   try{
    const persisted=await readPersistedAuctions({url:supabaseUrl,secret:supabaseSecret},{limit:500,msk});
-   if(persisted.length){
+   {
     const now=new Date();
     const sourceCounts=new Map<string,number>();
-    for(const item of persisted)sourceCounts.set(item.source,(sourceCounts.get(item.source)||0)+1);
+    for(const item of persisted)for(const name of new Set([item.source,...(item.provenance??[]).map(p=>p.source)]))sourceCounts.set(name,(sourceCounts.get(name)||0)+1);
     const persistedSources=[...sourceCounts].map(([name,count])=>({name,ok:true,count}));
     return Response.json({items:persisted.slice(0,250),sources:persistedSources,region:msk?'msk':'all',fetchedAt:now.toISOString(),dataSource:'supabase',today:{date:pragueDay(now),count:publishedToday(persisted,now).length,complete:false}},{headers:{'Cache-Control':'public, max-age=60'}});
    }
-  }catch(error){console.error('Persisted auction read failed; falling back to live sources',error)}
+  }catch{ return Response.json({error:'Uložené nabídky se nepodařilo načíst. Zkontrolujte stav databáze.'},{status:503,headers:{'Cache-Control':'no-store'}}); }
  }
  const tasks=[['CEVD',()=>cevd(msk)],['Portál dražeb',()=>portalDrazeb(msk)],['Finanční správa',financial],['ÚZSVM – aukce majetku',()=>uzsvm(msk)],['Insolvenční záměry',insolvencniZamery],['OKdražby',okdrazby],['exdrazby',()=>exdrazby(msk)],['dražby-exekutoři',drazbyExekutori],['Správa železnic – prodej',spravaZeleznic],['Prokonzulta',prokonzulta],['ASIS – insolvenční majetek',asis],['Burza správců – nemovitosti',burzaSpravcu],['Exekutorský úřad Ostrava',exekutorOstrava],['Aukce města Karviná',karvina],['Portál elektronických dražeb',()=>portalElektronickych(msk)],['DražbyProst',drazbyProst],['Elektronické dražby',elektronickeDrazby]] as const;
  const settled=await Promise.allSettled(tasks.map(async([name,task])=>({name,items:await task()})));const items:Listing[]=[],sources:Array<{name:string;ok:boolean;count:number;error?:string}>=[];

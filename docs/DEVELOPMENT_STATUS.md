@@ -1,14 +1,22 @@
-# Development checkpoint — 2026-10-12
+# Development checkpoint — 2026-10-13
 
 Branch: automation/single-user-features, draft PR #2. Production main and the existing Site have not been changed.
 
-## Added in the current run
+## Completed this run (local implementation)
 
-- Renewable collector lease with transactional write fencing; wrong/expired tokens cannot renew or write auction/crawl state. First commit ef5363cc53bae8b0074520c482ab6c8907678072 has successful GitHub CI.
-- Owner-only source health API and /zdroje overview, healthy-empty distinction, consecutive failures and stale-success warnings. Commit e969bbf90a2805a4fca2827f0b27610b3865dcc9 has successful GitHub CI.
-- Durable auction-event outbox, shared saved-filter evaluator, idempotent owner notification queue, /api/notifications and /upozorneni read/read-all UI. See docs/ALERTS.md and docs/LEASE_CHECKPOINT.md for exact contracts and deployment prerequisites.
-- Local real-response fixtures replay through PostgreSQL and the alert evaluator. 34 new-offer events plus price/date/status events; unchanged replay emits none; queue completion replay is idempotent. No fresh source collection or hosted/browser success is claimed.
-- Supabase tools and configured credentials are unavailable. Vercel project queries by name and repository return no accessible existing project. No new paid resource, deployment, schedule activation or merge was performed.
+- Checkpoint re-read from GitHub: initial 0da515f, then b547f81 (alert drain), CI run 96 successful. PR #2 remains open draft; its base is automation/supabase-auction-reader, not main. No merge or deployment.
+- Bounded alert drain: 500/page, up to ten pages and 90 seconds; transactional continuation, explicit backlog/failure reporting to scheduler, queue metrics in /api/health. PostgreSQL regression drains 1101 events; unit regression covers 1201 and interrupted retry.
+- Conservative cross-source identity in persistence: structured lot-level evidence, conflict veto, unique-candidate-only merge, source occurrences and provenance preserved. Weak/ambiguous matches remain separate and are marked in the auction UI. First source remains authoritative to avoid stale mirror oscillation. See CROSS_SOURCE_DEDUP.md.
+- Explicit server SELECT grants remove reliance on hosted default privileges. Configured DB read failure now returns 503 instead of silently falling back to nonpersistent live offers. Empty DB stays empty.
+- Full local pnpm check passes (including actual PGlite PostgreSQL migrations/RPC tests and production build). Reader/source-filter regression covers provenance. Browser rendering is not verified.
+- Existing 34 captured real-source offers replay safely. Positive cross-source identity tests use synthetic structured observations, not a verified real cross-source pair. Current summary collectors generally lack lot identity; enrichment remains necessary before claiming real auto-merge coverage.
+- Fresh CEVD network call on 2026-10-13 Prague returned 60 published offers. This confirms live access and also the existing first-page cap; it does not prove hosted persistence or completeness.
+
+## External blockers (confirmed this run)
+
+- Supabase plugin discovery reports available but not installed. Install/connect Supabase in Work using the account containing existing isir-drazby and allow project inspection/migrations. Do not paste credentials into chat or create a replacement project.
+- Vercel list-projects query for isir returned an empty list. Existing Sites project appgprj_6ab83056864c8191ae3af0ef8affb8a1 is active, version 20, and was read only. Sites has production publishing, not a safe isolated preview for this project. The Cloudflare Workers/D1/ChatGPT identity runtime cannot be assumed to run as an unmodified Vercel preview.
+- Hosted schema/migrations/read-write/replay, owner browser persistence and scheduler dispatch remain UNVERIFIED. No schedule activated. Main and the backup Site remain unchanged.
 
 ## Previously verified collector and owner foundation
 
@@ -32,4 +40,4 @@ Branch: automation/single-user-features, draft PR #2. Production main and the ex
 
 ## Next P0
 
-Authorize management access to existing Supabase isir-drazby, inspect applied migrations, apply only missing safe migrations, and verify hosted replay. Then verify owner browser persistence and scheduler dispatch against an isolated deployment. A production-ready claim requires that actual hosted/browser/scheduler/alert flow; passing local checks alone is insufficient. Cross-source deduplication, collector completeness and ISIR alert coverage remain subsequent work.
+Authorize management access to existing Supabase isir-drazby, inspect applied migrations, apply only missing safe migrations, and verify hosted replay. Then verify owner browser persistence and scheduler dispatch against an isolated deployment. A production-ready claim requires that actual hosted/browser/scheduler/alert flow; passing local checks alone is insufficient. Next independent priority: finish and live-verify CEVD pagination and explicit source completeness, then the other prioritized sources. Cross-source detail enrichment, hosted verification and ISIR alert coverage remain open.
