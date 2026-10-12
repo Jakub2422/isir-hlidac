@@ -127,7 +127,7 @@ try{
  assert.equal((await complete()).rows[0].n,0,'queue completion is idempotent');
  const alertFetch=async(url,init)=>{
   if(url.includes('owner_saved_filters'))return Response.json((await db.query('select * from owner_saved_filters')).rows);
-  if(url.includes('auction_alert_events'))return Response.json((await db.query('select * from auction_alert_events where evaluated_at is null order by id')).rows);
+  if(url.includes('auction_alert_events'))return Response.json((await db.query('select * from auction_alert_events where evaluated_at is null order by id limit $1',[Number(new URL(url).searchParams.get('limit'))])).rows);
   const body=JSON.parse(init.body);
   return Response.json((await db.query('select public.complete_auction_alert($1,$2::uuid[],$3) n',[body.p_event_id,body.p_filter_ids,body.p_lease_token])).rows[0].n);
  };
@@ -137,6 +137,15 @@ try{
  assert.deepEqual(await evaluatePendingAlerts(alertConfig,alertFetch),{evaluated:0,notifications:0,pending:false});
  assert.equal((await db.query('select count(*)::int n from owner_notifications')).rows[0].n,notificationCount);
  await assert.rejects(()=>db.query('select public.complete_auction_alert($1,$2::uuid[],$3)',[events[1].id,[filterId],leaseB]),/lease lost/);
+ await db.exec('reset role');
+ await db.query(`insert into auction_alert_events(auction_id,event_type,snapshot)
+ select $1,'PRICE_CHANGED',$2::jsonb from generate_series(1,1101)`,[updated.auctionId,JSON.stringify({...events.at(-1).snapshot,metadata:{location:'Ostrava'},opening_price:1000000})]);
+ await db.exec('set role service_role');
+ assert.deepEqual(await evaluatePendingAlerts(alertConfig,alertFetch,{maxBatches:1}),{evaluated:500,notifications:500,pending:true});
+ assert.deepEqual(await evaluatePendingAlerts(alertConfig,alertFetch),{evaluated:601,notifications:601,pending:false});
+ assert.deepEqual(await evaluatePendingAlerts(alertConfig,alertFetch),{evaluated:0,notifications:0,pending:false});
+ assert.equal((await db.query('select count(*)::int n from owner_notifications')).rows[0].n,notificationCount+1101);
+ console.log('PostgreSQL alert backlog: 1101 events, continuation and replay passed');
  const notification=(await db.query('select * from owner_notifications')).rows[0];
  await db.query('update owner_notifications set read_at=now() where id=$1',[notification.id]);
  assert.ok((await db.query('select read_at from owner_notifications where id=$1',[notification.id])).rows[0].read_at);

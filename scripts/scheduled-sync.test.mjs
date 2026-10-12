@@ -16,3 +16,8 @@ assert.equal(count,5,'auction failure does not block independent ISIR');
 await assert.rejects(()=>runScheduledSync({...config,url:'http://example.test'},mock),/HTTPS/);
 await assert.rejects(()=>runScheduledSync({...config,syncSecret:''},mock),/required/);
 console.log('Scheduled sync regressions passed');
+for(const body of [{alerts:{pending:true}},{alerts:{failed:true}}]){
+ let n=0;
+ await assert.rejects(()=>runScheduledSync(config,async()=>Response.json(++n===1?body:{}),()=>{}),/incomplete/);
+ assert.equal(n,5,'alert failure must not block ISIR');
+}

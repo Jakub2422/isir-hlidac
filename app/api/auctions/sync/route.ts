@@ -68,7 +68,10 @@ export async function POST(request:Request){
  await heartbeat.ensure();
  const persistence=await persistAuctionListings(unique,config);
  await heartbeat.ensure();
- const alerts=await evaluatePendingAlerts(config);
+ let alerts;
+ try{alerts=await evaluatePendingAlerts(config);}
+ catch{return Response.json({error:'Alert evaluation failed; pending events retained',stage:'alerts',alerts:{failed:true},persistence},{status:503,headers:{'Cache-Control':'no-store'}});}
+
  const crawlTracking={recorded:crawlRecords.filter(x=>x.status==='fulfilled').length,failed:crawlRecords.filter(x=>x.status==='rejected').length};
  const outcome=collectorOutcome(sources,persistence.failed,crawlTracking.failed);
  return Response.json({
@@ -77,11 +80,11 @@ export async function POST(request:Request){
   alerts,
   sources,
   crawlTracking,
-  complete:outcome.complete,
+  complete:outcome.complete&&!alerts.pending,
   finalizedMissing:false,
   fetchedAt:new Date().toISOString(),
  },{
-  status:outcome.status,
+  status:alerts.pending?207:outcome.status,
   headers:{'Cache-Control':'no-store'},
  });
  }catch{

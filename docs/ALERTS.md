@@ -28,3 +28,17 @@ Local regression covers 34 real-response offers, three important changes, event
 replay, shared matching, durable completion replay, stale-token rejection, read
 persistence and table grants. Browser → ChatGPT identity → hosted Supabase remains
 unverified and requires the authorized isolated deployment.
+
+## Bounded backlog drain
+
+The evaluator drains up to ten pages of 500 events, with a 90-second work budget.
+Only transactional completion removes an event from the pending set. Failure,
+lease loss, or budget exhaustion leaves remaining work for the next run. A final
+probe distinguishes an exactly full final page from a real backlog. The sync
+endpoint reports evaluator failures as HTTP 503 with stage `alerts`, and retained
+backlog as HTTP 207. The scheduler fails visibly for either case while continuing
+independent ISIR sync. `/api/health` exposes pending count and oldest pending time.
+Local unit tests cover 1201 events and interrupted continuation; PostgreSQL covers
+1101 events over multiple runs without notification duplication. These are not
+hosted verification results. Sustained ingress beyond the bounded drain capacity
+needs operational intervention; the scheduler must not report it as success.

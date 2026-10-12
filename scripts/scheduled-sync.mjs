@@ -12,8 +12,8 @@ export async function runScheduledSync(config, fetcher=fetch, report=console.log
   catch{throw new Error(`Request failed: ${path}`);}
   let body;try{body=await response.json();}catch{throw new Error(`Invalid JSON: ${path} (${response.status})`);}
   const skipped=body.busy===true || body.skipped===true;
-  const failed=!skipped && (!response.ok || response.status===207 || body.persistence?.failed>0 || body.crawlTracking?.failed>0 || body.mirror?.failed>0);
-  const result={path,startedAt,finishedAt:new Date().toISOString(),status:response.status,skipped,failed,fetched:body.fetched??null,found:body.found??null,created:body.persistence?.created??null};
+  const failed=!skipped && (!response.ok || response.status===207 || body.persistence?.failed>0 || body.crawlTracking?.failed>0 || body.mirror?.failed>0 || body.alerts?.failed===true || body.alerts?.pending===true);
+  const result={path,startedAt,finishedAt:new Date().toISOString(),status:response.status,skipped,failed,fetched:body.fetched??null,found:body.found??null,created:body.persistence?.created??null,alertsEvaluated:body.alerts?.evaluated??null,alertsPending:body.alerts?.pending??null,stage:body.stage??null};
   results.push(result);report(JSON.stringify(result));return result;
  }
  // Keep independent collectors running if another area fails, but never retry a mutation blindly.
