@@ -26,7 +26,7 @@
     "test:owner": "node --experimental-strip-types lib/owner-storage.test.mjs",
     "test:auction-import": "node --experimental-strip-types lib/auction-import.test.mjs",
     "test:saved-filter": "node --experimental-strip-types lib/saved-filter.test.mjs",
-    "test:scheduler": "node scripts/scheduled-sync.test.mjs"
+    "test:scheduler": "node scripts/scheduled-sync.test.mjs && node --experimental-strip-types lib/collector-lease.test.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",

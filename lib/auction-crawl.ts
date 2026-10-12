@@ -16,10 +16,11 @@ export async function recordAuctionCrawl(
  config:AuctionPersistenceConfig,
  fetcher:typeof fetch=fetch,
 ):Promise<number>{
- const response=await fetcher(`${config.url.replace(/\/$/,'')}/rest/v1/rpc/record_auction_crawl_run`,{
+ const response=await fetcher(`${config.url.replace(/\/$/,'')}/rest/v1/rpc/${config.leaseToken?'record_leased_auction_crawl_run':'record_auction_crawl_run'}`,{
   method:'POST',
   headers:{apikey:config.secret,Authorization:`Bearer ${config.secret}`,'Content-Type':'application/json'},
   body:JSON.stringify({
+   ...(config.leaseToken?{p_lease_token:config.leaseToken}:{}),
    p_source_code:record.sourceCode,
    p_started_at:record.startedAt,
    p_finished_at:record.finishedAt,

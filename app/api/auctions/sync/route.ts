@@ -1,7 +1,7 @@
 import {env} from 'cloudflare:workers';
 import {persistAuctionListings} from '@/lib/auction-persistence';
 import {recordAuctionCrawl} from '@/lib/auction-crawl';
-import {collectorLease} from '@/lib/collector-lease';
+import {collectorLease,startCollectorHeartbeat} from '@/lib/collector-lease';
 import {collectorOutcome} from '@/lib/collector-outcome';
 import {sourceCodeFor} from '@/lib/auction-source-registry';
 import {exekutorOstrava,asis,burzaSpravcu,cevd,drazbyExekutori,drazbyProst,elektronickeDrazby,exdrazby,financial,insolvencniZamery,karvina,okdrazby,portalDrazeb,portalElektronickych,prokonzulta,spravaZeleznic,uzsvm,type Listing} from '@/lib/auction-import';
@@ -19,11 +19,12 @@ export async function POST(request:Request){
  if(!supabaseUrl||!supabaseSecret)
   return Response.json({error:'Supabase persistence není nakonfigurována'},{status:503});
 
- const config={url:supabaseUrl,secret:supabaseSecret};
  const leaseToken=crypto.randomUUID();
+ const config={url:supabaseUrl,secret:supabaseSecret,leaseToken};
  try{
   if(!await collectorLease('acquire',leaseToken,config))return Response.json({busy:true},{status:409});
  }catch{return Response.json({error:'Collector lock unavailable'},{status:503});}
+ const heartbeat=startCollectorHeartbeat(leaseToken,config);
  try{
  const tasks=[
   ['CEVD',()=>cevd(false)],['Portál dražeb',()=>portalDrazeb(false)],
@@ -51,6 +52,7 @@ export async function POST(request:Request){
  }
 
  const finishedAt=new Date().toISOString();
+ await heartbeat.ensure();
  const crawlRecords=await Promise.allSettled(sources.map(async source=>{
   const sourceCode=sourceCodeFor({source:source.name});
   if(!sourceCode)throw new Error(`Unregistered auction source: ${source.name}`);
@@ -62,6 +64,7 @@ export async function POST(request:Request){
  }));
 
  const unique=[...new Map(listings.map(item=>[`${item.source}\n${item.url}`,item])).values()];
+ await heartbeat.ensure();
  const persistence=await persistAuctionListings(unique,config);
  const crawlTracking={recorded:crawlRecords.filter(x=>x.status==='fulfilled').length,failed:crawlRecords.filter(x=>x.status==='rejected').length};
  const outcome=collectorOutcome(sources,persistence.failed,crawlTracking.failed);
@@ -77,7 +80,10 @@ export async function POST(request:Request){
   status:outcome.status,
   headers:{'Cache-Control':'no-store'},
  });
+ }catch{
+  return Response.json({error:'Collector stopped: lease or database unavailable'},{status:503});
  }finally{
+  await heartbeat.stop();
   await collectorLease('release',leaseToken,config).catch(()=>console.error('Collector lease release failed'));
  }
 }
