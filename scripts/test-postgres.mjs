@@ -49,6 +49,18 @@ try{
  await db.exec('reset role');
  source=(await db.query("select * from public.auction_sources where code='cevd'")).rows[0];
  assert.equal(source.last_error,null);assert.deepEqual(source.last_error_at,errorAt);assert.ok(source.last_success_at);
+ // Use a separate source so the lease test's current-time CEVD crawl does not
+ // interfere with historical health ordering.
+ const healthCall=(success,count,start)=>db.query('select public.record_auction_crawl_run($1,$2,$2,$3,false,$4,$5)',['burza-spravcu',start,success,count,success?null:'timeout']);
+ const health=async()=>(await db.query("select * from auction_source_health where code='burza-spravcu'")).rows[0];
+ await healthCall(true,4,'2026-10-05T10:00:00Z');
+ await healthCall(false,0,'2026-10-05T11:00:00Z');
+ await healthCall(false,0,'2026-10-05T12:00:00Z');
+ assert.equal((await health()).consecutive_failures,2);
+ await healthCall(true,0,'2026-10-05T13:00:00Z');
+ assert.equal((await health()).consecutive_failures,0);
+ assert.equal((await health()).item_count,0);assert.equal((await health()).success,true);
+ for(const role of ['anon','authenticated']){await db.exec('set role '+role);await assert.rejects(health);await db.exec('reset role');}
  await assert.rejects(()=>call(true,false,-1));
  await assert.rejects(()=>call(true,false,1,'2026-10-06','2026-10-05'));
  for(const role of ['anon','authenticated']){
