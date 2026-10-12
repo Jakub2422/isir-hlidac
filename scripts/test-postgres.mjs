@@ -4,6 +4,7 @@ import {PGlite} from '@electric-sql/pglite';
 import {parseBurzaSpravcu,parseExekutorOstrava} from '../lib/auction-import.ts';
 import {persistAuctionListing} from '../lib/auction-persistence.ts';
 import {auctionRowToListing} from '../lib/auction-reader.ts';
+import {evaluatePendingAlerts} from '../lib/alert-evaluator.ts';
 const db=new PGlite();
 try{
  const schema=await readFile('supabase/schema.sql','utf8');
@@ -114,10 +115,38 @@ try{
  assert.equal((await db.query('select active from owner_saved_filters where id=$1',[filterId])).rows[0].active,false);
  await db.exec('reset role');
  assert.deepEqual((await db.query('select field_name from auction_changes where auction_id=$1 order by field_name',[updated.auctionId])).rows.map(x=>x.field_name),['auctionAt','openingPrice','status']);
+ const events=(await db.query('select * from auction_alert_events order by id')).rows;
+ assert.equal(events.length,37,'34 new offers plus three changes; replay emits no events');
+ assert.deepEqual(events.slice(-3).map(e=>e.event_type).sort(),['DATE_CHANGED','PRICE_CHANGED','STATUS_CHANGED']);
+ assert.equal(events.at(-1).snapshot.opening_price,1000000);
+ await db.query("update owner_saved_filters set active=true,created_at='2026-01-01',criteria=$2::jsonb where id=$1",[filterId,JSON.stringify({location:'Ostrava',propertyType:'',source:'',minPrice:100000,maxPrice:null})]);
+ await db.exec('set role service_role');
+ assert.equal(await renew(leaseA),true);
+ const complete=()=>db.query('select public.complete_auction_alert($1,$2::uuid[],$3) n',[events[0].id,[filterId],leaseA]);
+ assert.equal((await complete()).rows[0].n,1);
+ assert.equal((await complete()).rows[0].n,0,'queue completion is idempotent');
+ const alertFetch=async(url,init)=>{
+  if(url.includes('owner_saved_filters'))return Response.json((await db.query('select * from owner_saved_filters')).rows);
+  if(url.includes('auction_alert_events'))return Response.json((await db.query('select * from auction_alert_events where evaluated_at is null order by id')).rows);
+  const body=JSON.parse(init.body);
+  return Response.json((await db.query('select public.complete_auction_alert($1,$2::uuid[],$3) n',[body.p_event_id,body.p_filter_ids,body.p_lease_token])).rows[0].n);
+ };
+ const alertConfig={url:'https://local.test',secret:'test-only',leaseToken:leaseA};
+ assert.equal((await evaluatePendingAlerts(alertConfig,alertFetch)).evaluated,36);
+ const notificationCount=(await db.query('select count(*)::int n from owner_notifications')).rows[0].n;
+ assert.deepEqual(await evaluatePendingAlerts(alertConfig,alertFetch),{evaluated:0,notifications:0,pending:false});
+ assert.equal((await db.query('select count(*)::int n from owner_notifications')).rows[0].n,notificationCount);
+ await assert.rejects(()=>db.query('select public.complete_auction_alert($1,$2::uuid[],$3)',[events[1].id,[filterId],leaseB]),/lease lost/);
+ const notification=(await db.query('select * from owner_notifications')).rows[0];
+ await db.query('update owner_notifications set read_at=now() where id=$1',[notification.id]);
+ assert.ok((await db.query('select read_at from owner_notifications where id=$1',[notification.id])).rows[0].read_at);
+ await db.exec('reset role');
  for(const role of ['anon','authenticated']){
   await db.exec('set role '+role);
   await assert.rejects(()=>db.query('select * from owner_favorites'));
   await assert.rejects(()=>db.query('select * from owner_saved_filters'));
+  await assert.rejects(()=>db.query('select * from owner_notifications'));
+  await assert.rejects(()=>db.query('select * from auction_alert_events'));
  }
  await db.exec('reset role');
  console.log('Price/date/status history, favorite idempotency, saved filters and owner table grants passed');

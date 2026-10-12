@@ -3,6 +3,7 @@ import {persistAuctionListings} from '@/lib/auction-persistence';
 import {recordAuctionCrawl} from '@/lib/auction-crawl';
 import {collectorLease,startCollectorHeartbeat} from '@/lib/collector-lease';
 import {collectorOutcome} from '@/lib/collector-outcome';
+import {evaluatePendingAlerts} from '@/lib/alert-evaluator';
 import {sourceCodeFor} from '@/lib/auction-source-registry';
 import {exekutorOstrava,asis,burzaSpravcu,cevd,drazbyExekutori,drazbyProst,elektronickeDrazby,exdrazby,financial,insolvencniZamery,karvina,okdrazby,portalDrazeb,portalElektronickych,prokonzulta,spravaZeleznic,uzsvm,type Listing} from '@/lib/auction-import';
 
@@ -66,11 +67,14 @@ export async function POST(request:Request){
  const unique=[...new Map(listings.map(item=>[`${item.source}\n${item.url}`,item])).values()];
  await heartbeat.ensure();
  const persistence=await persistAuctionListings(unique,config);
+ await heartbeat.ensure();
+ const alerts=await evaluatePendingAlerts(config);
  const crawlTracking={recorded:crawlRecords.filter(x=>x.status==='fulfilled').length,failed:crawlRecords.filter(x=>x.status==='rejected').length};
  const outcome=collectorOutcome(sources,persistence.failed,crawlTracking.failed);
  return Response.json({
   fetched:unique.length,
   persistence,
+  alerts,
   sources,
   crawlTracking,
   complete:outcome.complete,
