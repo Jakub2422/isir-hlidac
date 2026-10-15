@@ -13,7 +13,7 @@
     "lint": "eslint . --ignore-pattern dist --ignore-pattern .next",
     "db:generate": "drizzle-kit generate",
     "test:auction-core": "node --experimental-strip-types lib/auction-core.test.mjs",
-    "check": "pnpm lint && pnpm typecheck && pnpm test:auction-import && pnpm test:auction-dedup && pnpm test:auction-core && pnpm test:auction-today && pnpm test:auction-observation && pnpm test:auction-persistence && pnpm test:auction-crawl && pnpm test:auction-reader && pnpm test:owner && pnpm test:saved-filter && pnpm test:collector-outcome && pnpm test:scheduler && pnpm test:collector-lease && pnpm test:source-health && pnpm test:alerts && pnpm test:postgres && pnpm test:insolvency && pnpm build",
+    "check": "pnpm lint && pnpm typecheck && pnpm test:auction-import && pnpm test:auction-dedup && pnpm test:portal-identity && pnpm test:auction-core && pnpm test:auction-today && pnpm test:auction-observation && pnpm test:auction-persistence && pnpm test:auction-crawl && pnpm test:auction-reader && pnpm test:owner && pnpm test:saved-filter && pnpm test:collector-outcome && pnpm test:scheduler && pnpm test:collector-lease && pnpm test:source-health && pnpm test:alerts && pnpm test:postgres && pnpm test:insolvency && pnpm build",
     "test:auction-today": "node --experimental-strip-types lib/auction-today.test.mjs",
     "test:auction-observation": "node --experimental-strip-types lib/auction-observation.test.mjs",
     "test:auction-persistence": "node --experimental-strip-types lib/auction-persistence.test.mjs",
@@ -30,6 +30,7 @@
     "test:collector-lease": "node --experimental-strip-types lib/collector-lease.test.mjs",
     "test:source-health": "node --experimental-strip-types lib/source-health.test.mjs",
     "test:alerts": "node --experimental-strip-types lib/alert-evaluator.test.mjs && node --experimental-strip-types lib/notifications.test.mjs",
+    "test:portal-identity": "node --experimental-strip-types lib/portal-drazeb-identity.test.mjs",
     "test:auction-dedup": "node --experimental-strip-types lib/auction-dedup.test.mjs"
   },
   "dependencies": {
