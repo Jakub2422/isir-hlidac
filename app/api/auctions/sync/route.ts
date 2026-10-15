@@ -1,9 +1,11 @@
 import {env} from 'cloudflare:workers';
 import {persistAuctionListings} from '@/lib/auction-persistence';
 import {recordAuctionCrawl} from '@/lib/auction-crawl';
+import {collectorLease,startCollectorHeartbeat} from '@/lib/collector-lease';
 import {collectorOutcome} from '@/lib/collector-outcome';
+import {evaluatePendingAlerts} from '@/lib/alert-evaluator';
 import {sourceCodeFor} from '@/lib/auction-source-registry';
-import {asis,cevd,drazbyExekutori,drazbyProst,elektronickeDrazby,exdrazby,financial,insolvencniZamery,karvina,okdrazby,portalDrazeb,portalElektronickych,prokonzulta,spravaZeleznic,uzsvm,type Listing} from '@/lib/auction-import';
+import {exekutorOstrava,asis,burzaSpravcu,cevd,drazbyExekutori,drazbyProst,elektronickeDrazby,exdrazby,financial,insolvencniZamery,karvina,okdrazby,portalDrazeb,portalElektronickych,prokonzulta,spravaZeleznic,uzsvm,type Listing} from '@/lib/auction-import';
 
 export const runtime='edge';
 
@@ -18,13 +20,20 @@ export async function POST(request:Request){
  if(!supabaseUrl||!supabaseSecret)
   return Response.json({error:'Supabase persistence není nakonfigurována'},{status:503});
 
+ const leaseToken=crypto.randomUUID();
+ const config={url:supabaseUrl,secret:supabaseSecret,leaseToken};
+ try{
+  if(!await collectorLease('acquire',leaseToken,config))return Response.json({busy:true},{status:409});
+ }catch{return Response.json({error:'Collector lock unavailable'},{status:503});}
+ const heartbeat=startCollectorHeartbeat(leaseToken,config);
+ try{
  const tasks=[
   ['CEVD',()=>cevd(false)],['Portál dražeb',()=>portalDrazeb(false)],
   ['Finanční správa',financial],['ÚZSVM – aukce majetku',()=>uzsvm(false)],
   ['Insolvenční záměry',insolvencniZamery],['OKdražby',okdrazby],
   ['exdrazby',()=>exdrazby(false)],['dražby-exekutoři',drazbyExekutori],
   ['Správa železnic – prodej',spravaZeleznic],['Prokonzulta',prokonzulta],
-  ['ASIS – insolvenční majetek',asis],['Aukce města Karviná',karvina],
+  ['ASIS – insolvenční majetek',asis],['Burza správců – nemovitosti',burzaSpravcu],['Exekutorský úřad Ostrava',exekutorOstrava],['Aukce města Karviná',karvina],
   ['Portál elektronických dražeb',()=>portalElektronickych(false)],
   ['DražbyProst',drazbyProst],['Elektronické dražby',elektronickeDrazby],
  ] as const;
@@ -44,7 +53,7 @@ export async function POST(request:Request){
  }
 
  const finishedAt=new Date().toISOString();
- const config={url:supabaseUrl,secret:supabaseSecret};
+ await heartbeat.ensure();
  const crawlRecords=await Promise.allSettled(sources.map(async source=>{
   const sourceCode=sourceCodeFor({source:source.name});
   if(!sourceCode)throw new Error(`Unregistered auction source: ${source.name}`);
@@ -56,19 +65,32 @@ export async function POST(request:Request){
  }));
 
  const unique=[...new Map(listings.map(item=>[`${item.source}\n${item.url}`,item])).values()];
+ await heartbeat.ensure();
  const persistence=await persistAuctionListings(unique,config);
+ await heartbeat.ensure();
+ let alerts;
+ try{alerts=await evaluatePendingAlerts(config);}
+ catch{return Response.json({error:'Alert evaluation failed; pending events retained',stage:'alerts',alerts:{failed:true},persistence},{status:503,headers:{'Cache-Control':'no-store'}});}
+
  const crawlTracking={recorded:crawlRecords.filter(x=>x.status==='fulfilled').length,failed:crawlRecords.filter(x=>x.status==='rejected').length};
  const outcome=collectorOutcome(sources,persistence.failed,crawlTracking.failed);
  return Response.json({
   fetched:unique.length,
   persistence,
+  alerts,
   sources,
   crawlTracking,
-  complete:outcome.complete,
+  complete:outcome.complete&&!alerts.pending,
   finalizedMissing:false,
   fetchedAt:new Date().toISOString(),
  },{
-  status:outcome.status,
+  status:alerts.pending?207:outcome.status,
   headers:{'Cache-Control':'no-store'},
  });
+ }catch{
+  return Response.json({error:'Collector stopped: lease or database unavailable'},{status:503});
+ }finally{
+  await heartbeat.stop();
+  await collectorLease('release',leaseToken,config).catch(()=>console.error('Collector lease release failed'));
+ }
 }

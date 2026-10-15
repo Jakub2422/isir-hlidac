@@ -4,6 +4,7 @@ import type {Listing} from './auction-import.ts';
 export type AuctionPersistenceConfig={
  url:string;
  secret:string;
+ leaseToken?:string;
 };
 
 export type AuctionPersistenceResult={
@@ -18,7 +19,7 @@ export type AuctionPersistenceResult={
 type RpcResult={auction_id:string;occurrence_id:string;created:boolean};
 
 function endpoint(config:AuctionPersistenceConfig){
- return `${config.url.replace(/\/$/,'')}/rest/v1/rpc/upsert_auction_observation`;
+ return `${config.url.replace(/\/$/,'')}/rest/v1/rpc/${config.leaseToken?'upsert_leased_auction_observation':'upsert_auction_observation'}`;
 }
 
 export async function persistAuctionListing(
@@ -36,6 +37,7 @@ export async function persistAuctionListing(
    'Content-Type':'application/json',
   },
   body:JSON.stringify({
+   ...(config.leaseToken?{p_lease_token:config.leaseToken}:{}),
    p_source_code:item.sourceCode,
    p_canonical_key:item.canonicalKey,
    p_source_external_id:item.externalId,
