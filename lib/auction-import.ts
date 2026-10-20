@@ -6,7 +6,33 @@ function decode(s:string){return s.replace(/<!\[CDATA\[([\s\S]*?)\]\]>/g,'$1').r
 function safeLink(value:string,base:string){try{const u=new URL(decode(value),base);return u.protocol==='https:'?u.href:''}catch{return ''}}
 async function get(url:string,max=1_600_000){const res=await fetch(url,{signal:AbortSignal.timeout(18000),headers:{'Accept':'text/html, application/json, application/rss+xml, */*','User-Agent':'ISIR-Reality-MSK/1.0'}});if(!res.ok)throw Error('HTTP '+res.status);const len=Number(res.headers.get('content-length')||0);if(len>max)throw Error('Příliš velká odpověď');const body=await res.text();if(body.length>max)throw Error('Příliš velká odpověď');return {body,res}}
 function unique(a:Listing[]){return [...new Map(a.filter(x=>x.url&&x.title).map(x=>[x.url,x])).values()]}
-export async function cevd(msk:boolean):Promise<Listing[]>{const p=new URLSearchParams({take:msk?'100':'60',skip:'0',categoryIds:'1',eventStartDateFrom:new Date().toLocaleDateString('sv-SE',{timeZone:'Europe/Prague'}),orderBy:'auction.publicationDate desc'});if(msk)p.set('regionIds','132');const {body}=await get('https://cevd.gov.cz/api/auctions/items?'+p,4_000_000);const j=JSON.parse(body) as {items:Array<{id:number;name:string;status:string;startingBid:number|null;description?:string;auction:{eventStart?:string;publicationDate?:string;status?:string;number?:string}}>};if(!Array.isArray(j.items))throw Error('Neplatná odpověď CEVD');return j.items.map(x=>({source:'CEVD',title:x.name||'Nemovitost',url:'https://cevd.gov.cz/seznam-drazeb/detail/'+x.id,date:x.auction?.eventStart||'',published:x.auction?.publicationDate||'',price:x.startingBid?`${x.startingBid.toLocaleString('cs-CZ')} Kč`:'',location:x.name||'',msk:msk||region.test((x.name||'')+' '+(x.description||'').slice(0,500)),status:x.status||x.auction?.status||''})).filter(x=>x.status==='Published'&&x.url)}
+export async function cevd(msk:boolean):Promise<Listing[]>{
+ const pageSize=100,maxPages=25;
+ const p=new URLSearchParams({take:String(pageSize),skip:'0',categoryIds:'1',eventStartDateFrom:new Date().toLocaleDateString('sv-SE',{timeZone:'Europe/Prague'}),orderBy:'auction.publicationDate desc'});
+ if(msk)p.set('regionIds','132');
+ type Item={id:number;name:string;status:string;startingBid:number|null;description?:string;auction?:{eventStart?:string;publicationDate?:string;status?:string;number?:string}};
+ const items:Item[]=[],seen=new Set<number>();let expectedTotal:number|undefined;
+ for(let page=0;page<maxPages;page++){
+  p.set('skip',String(page*pageSize));
+  const {body}=await get('https://cevd.gov.cz/api/auctions/items?'+p,4_000_000);
+  const j=JSON.parse(body) as {items:Item[];total?:number};
+  if(!Array.isArray(j.items)||j.items.length>pageSize)throw Error('Neplatná odpověď CEVD');
+  if(j.total!==undefined){
+   if(!Number.isSafeInteger(j.total)||j.total<0)throw Error('CEVD: neplatný celkový počet');
+   if(expectedTotal!==undefined&&j.total!==expectedTotal)throw Error('CEVD: katalog se během stránkování změnil; sběr není úplný');
+   expectedTotal=j.total;
+  }
+  for(const item of j.items){
+   if(!Number.isSafeInteger(item.id)||seen.has(item.id))throw Error('CEVD: opakovaná nebo neplatná stránka; sběr není úplný');
+   seen.add(item.id);items.push(item);
+  }
+  if(expectedTotal!==undefined&&items.length>expectedTotal)throw Error('CEVD: nesouhlasí celkový počet');
+  const done=expectedTotal!==undefined?items.length===expectedTotal:j.items.length<pageSize;
+  if(done)return items.map(x=>({source:'CEVD',title:x.name||'Nemovitost',url:'https://cevd.gov.cz/seznam-drazeb/detail/'+x.id,date:x.auction?.eventStart||'',published:x.auction?.publicationDate||'',price:x.startingBid!=null?`${x.startingBid.toLocaleString('cs-CZ')} Kč`:'',location:x.name||'',msk:msk||region.test((x.name||'')+' '+(x.description||'').slice(0,500)),status:x.status||x.auction?.status||''})).filter(x=>x.status==='Published'&&x.url);
+  if(j.items.length<pageSize)throw Error('CEVD: předčasný konec katalogu; sběr není úplný');
+ }
+ throw Error('CEVD: dosažen limit stránek; sběr není úplný');
+}
 export async function financial():Promise<Listing[]>{const {body}=await get('https://financnisprava.gov.cz/cs/financni-sprava/drazby-financni-spravy/drazby-prehled?rss=1');if(!/<rss\b/i.test(body))throw Error('Neplatný RSS');const out:Listing[]=[];for(const m of body.matchAll(/<item>([\s\S]*?)<\/item>/gi)){const field=(k:string)=>decode(new RegExp('<'+k+'>([\\s\\S]*?)<\\/'+k+'>','i').exec(m[1])?.[1]||'');const title=field('description'),location=title,url=safeLink(field('link'),'https://financnisprava.gov.cz');if(!property.test(title)||!url.startsWith('https://financnisprava.gov.cz/'))continue;out.push({source:'Finanční správa',title,url,date:field('pubDate'),published:'',price:'',location,msk:region.test(location),status:'Aktuální v RSS'})}return unique(out)}
 export async function okdrazby():Promise<Listing[]>{const base='https://okdrazby.cz/';const {body}=await get(base);const a:Listing[]=[];for(const m of body.matchAll(/<a[^>]+class="AuctionsList_auctionName[^"\n]*"[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi)){const title=decode(m[2]);if(!property.test(title))continue;const tail=body.slice(m.index,m.index+850);const date=decode(/AuctionsList_auctionExactDateTime[^>]*>(.*?)<\/span>/i.exec(tail)?.[1]||'');const url=safeLink(m[1],base);a.push({source:'OKdražby',title,url,date,published:'',price:'',location:title,msk:region.test(title),status:'Zveřejněno na portálu'})}return unique(a)}
 export async function prokonzulta():Promise<Listing[]>{const base='https://www.prokonzulta.cz/nabidky';const {body}=await get(base);const a:Listing[]=[];for(const m of body.matchAll(/<a\s+href="(https:\/\/www\.prokonzulta\.cz\/(?:drazba|aukce|prodej)\/[^" ]+)"[^>]*>[\s\S]{0,1800}?<h3 class="offer-label">([\s\S]*?)<\/h3>/gi)){const title=decode(m[2]),url=safeLink(m[1],base);if(!property.test(title))continue;a.push({source:'Prokonzulta',title,url,date:'',published:'',price:'',location:title,msk:region.test(title),status:'Zveřejněno na portálu'})}return unique(a)}
