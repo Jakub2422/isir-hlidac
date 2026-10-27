@@ -1,3 +1,4 @@
+import {dedupEvidence} from './auction-dedup.ts';
 import {canonicalKey,classify,stableUrl,type AuctionObservation} from './auction-core.ts';
 import {sourceCodeFor,type AuctionSourceCode} from './auction-source-registry.ts';
 import type {Listing} from './auction-import.ts';
@@ -80,6 +81,6 @@ export function toPersistableObservation(listing:Listing):PersistableAuctionObse
   openingPrice:observation.openingPrice??null,
   auctionAt:observation.auctionAt??null,
   publishedAt:observation.publishedAt??null,
-  rawData:{source:listing.source,location:listing.location,msk:listing.msk,sourceStatus:listing.status},
+  rawData:{dedup:dedupEvidence(listing),identity:listing.identity??{},source:listing.source,location:listing.location,msk:listing.msk,sourceStatus:listing.status},
  };
 }

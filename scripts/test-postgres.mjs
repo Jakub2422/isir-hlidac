@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import {readFile,readdir} from 'node:fs/promises';
 import {PGlite} from '@electric-sql/pglite';
+import {parseBurzaSpravcu,parseExekutorOstrava} from '../lib/auction-import.ts';
+import {persistAuctionListing} from '../lib/auction-persistence.ts';
+import {auctionRowToListing} from '../lib/auction-reader.ts';
+import {evaluatePendingAlerts} from '../lib/alert-evaluator.ts';
 const db=new PGlite();
 try{
  const schema=await readFile('supabase/schema.sql','utf8');
@@ -10,6 +14,28 @@ try{
  assert.doesNotMatch(schema,/\nas \$\ndeclare/);
  await db.exec(`create role anon;create role authenticated;create role service_role bypassrls;create schema auth;create table auth.users(id uuid primary key);create function auth.uid() returns uuid language sql stable as $$select nullif(current_setting('request.jwt.claim.sub',true),'')::uuid$$;`);
  for(const file of (await readdir('supabase/migrations')).filter(f=>f.endsWith('.sql')).sort())await db.exec(await readFile('supabase/migrations/'+file,'utf8'));
+ const leaseA='11111111-1111-4111-8111-111111111111',leaseB='22222222-2222-4222-8222-222222222222';
+ await db.exec('set role service_role');
+ const acquire=async token=>(await db.query('select public.acquire_collector_lease($1,$2) ok',['auctions',token])).rows[0].ok;
+ assert.equal(await acquire(leaseA),true);assert.equal(await acquire(leaseB),false);
+ const renew=async token=>(await db.query('select public.renew_collector_lease($1,$2) ok',['auctions',token])).rows[0].ok;
+ assert.equal(await renew(leaseA),true);assert.equal(await renew(leaseB),false);
+ await db.query('select public.release_collector_lease($1,$2)',['auctions',leaseB]);
+ assert.equal(await acquire(leaseB),false,'wrong token cannot release lease');
+ await db.query('select public.release_collector_lease($1,$2)',['auctions',leaseA]);
+ assert.equal(await acquire(leaseB),true);
+ await db.exec('reset role');
+ await db.exec("update collector_leases set expires_at=clock_timestamp()-interval '1 second' where name='auctions'");
+ await db.exec('set role service_role');
+ assert.equal(await renew(leaseB),false,'expired token cannot revive lease');
+ assert.equal(await acquire(leaseA),true,'expired lease can be recovered');
+ const fencedCrawl=token=>db.query("select public.record_leased_auction_crawl_run($1,'cevd',now(),now(),true,false,0,null)",[token]);
+ await assert.rejects(()=>fencedCrawl(leaseB),/Collector lease lost/);
+ await db.query('select public.release_collector_lease($1,$2)',['auctions',leaseB]);
+ assert.equal(await acquire(leaseB),false,'old release cannot unlock successor');
+ await fencedCrawl(leaseA);
+ await assert.rejects(()=>db.query("select * from public.upsert_leased_auction_observation($1,'cevd','stale','1','https://example.test','Stale','house','active',1,now(),now(),'{}'::jsonb)",[leaseB]),/Collector lease lost/);
+ await db.exec('reset role');
  const call=(success,complete,count=4,start='2026-10-05T10:00:00Z',end='2026-10-05T10:01:00Z')=>db.query('select public.record_auction_crawl_run($1,$2,$3,$4,$5,$6,$7) id',['cevd',start,end,success,complete,count,success?null:'timeout']);
  await db.exec('set role service_role');
  const first=(await call(false,true)).rows[0].id;
@@ -24,6 +50,18 @@ try{
  await db.exec('reset role');
  source=(await db.query("select * from public.auction_sources where code='cevd'")).rows[0];
  assert.equal(source.last_error,null);assert.deepEqual(source.last_error_at,errorAt);assert.ok(source.last_success_at);
+ // Use a separate source so the lease test's current-time CEVD crawl does not
+ // interfere with historical health ordering.
+ const healthCall=(success,count,start)=>db.query('select public.record_auction_crawl_run($1,$2,$2,$3,false,$4,$5)',['burza-spravcu',start,success,count,success?null:'timeout']);
+ const health=async()=>(await db.query("select * from auction_source_health where code='burza-spravcu'")).rows[0];
+ await healthCall(true,4,'2026-10-05T10:00:00Z');
+ await healthCall(false,0,'2026-10-05T11:00:00Z');
+ await healthCall(false,0,'2026-10-05T12:00:00Z');
+ assert.equal((await health()).consecutive_failures,2);
+ await healthCall(true,0,'2026-10-05T13:00:00Z');
+ assert.equal((await health()).consecutive_failures,0);
+ assert.equal((await health()).item_count,0);assert.equal((await health()).success,true);
+ for(const role of ['anon','authenticated']){await db.exec('set role '+role);await assert.rejects(health);await db.exec('reset role');}
  await assert.rejects(()=>call(true,false,-1));
  await assert.rejects(()=>call(true,false,1,'2026-10-06','2026-10-05'));
  for(const role of ['anon','authenticated']){
@@ -43,6 +81,114 @@ try{
  assert.equal(saved[0].detected_at.toISOString(),'2026-10-05T10:01:00.000Z');
  for(const role of ['anon','authenticated']){await db.exec('set role '+role);await assert.rejects(()=>save());}
  await db.exec('reset role');
+ const realListings=[...parseBurzaSpravcu(await readFile('lib/fixtures/burza-spravcu.html','utf8')),...parseExekutorOstrava(await readFile('lib/fixtures/exekutor-ostrava.xml','utf8'))];
+ const rpcFetch=async(_url,init)=>{
+  const body=JSON.parse(init.body);
+  const keys=['p_source_code','p_canonical_key','p_source_external_id','p_source_url','p_title','p_category','p_status','p_opening_price','p_auction_at','p_published_at','p_raw_data'];
+  const values=keys.map(k=>k==='p_raw_data'?JSON.stringify(body[k]):body[k]);
+  const result=await db.query('select * from public.upsert_auction_observation($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11::jsonb)',values);
+  return Response.json(result.rows);
+ };
+ await db.exec('set role service_role');
+ for(const item of realListings){
+  const config={url:'https://local.test',secret:'test-only'};
+  const first=await persistAuctionListing(item,config,rpcFetch);
+  const repeat=await persistAuctionListing(item,config,rpcFetch);
+  assert.equal(first.created,true);assert.equal(repeat.created,false);assert.equal(first.auctionId,repeat.auctionId);
+ }
+ await db.exec('reset role');
+ assert.equal((await db.query('select count(*)::int n from auctions')).rows[0].n,34);
+ assert.equal((await db.query('select count(*)::int n from auction_occurrences')).rows[0].n,34);
+ const rows=(await db.query(`select a.*,jsonb_agg(jsonb_build_object('source_url',o.source_url,'raw_data',o.raw_data,'last_seen_at',o.last_seen_at,'auction_sources',jsonb_build_object('name',s.name))) auction_occurrences from auctions a join auction_occurrences o on o.auction_id=a.id join auction_sources s on s.id=o.source_id group by a.id`)).rows;
+ const listings=rows.map(auctionRowToListing);
+ assert.equal(listings.length,34);assert.equal(listings.filter(x=>x.msk).length,4);
+ assert.ok(listings.every(x=>x.auctionId&&x.title!=='Zobrazit'));
+ await db.exec('set role service_role');
+ const modified={...realListings[0],price:'1 000 000 Kč',date:'2026-11-01T10:00:00+01:00',status:'Odročená dražba'};
+ const updated=await persistAuctionListing(modified,{url:'https://local.test',secret:'test-only'},rpcFetch);
+ await persistAuctionListing(modified,{url:'https://local.test',secret:'test-only'},rpcFetch);
+ await db.query('insert into owner_favorites(auction_id) values($1) on conflict do nothing',[updated.auctionId]);
+ await db.query('insert into owner_favorites(auction_id) values($1) on conflict do nothing',[updated.auctionId]);
+ assert.equal((await db.query('select count(*)::int n from owner_favorites')).rows[0].n,1);
+ const filterId=(await db.query("insert into owner_saved_filters(name,criteria) values('Ostrava',$1::jsonb) returning id",[JSON.stringify({location:'Ostrava',minPrice:100000})])).rows[0].id;
+ await db.query('update owner_saved_filters set active=false where id=$1',[filterId]);
+ assert.equal((await db.query('select active from owner_saved_filters where id=$1',[filterId])).rows[0].active,false);
+ await db.exec('reset role');
+ assert.deepEqual((await db.query('select field_name from auction_changes where auction_id=$1 order by field_name',[updated.auctionId])).rows.map(x=>x.field_name),['auctionAt','openingPrice','status']);
+ const events=(await db.query('select * from auction_alert_events order by id')).rows;
+ assert.equal(events.length,37,'34 new offers plus three changes; replay emits no events');
+ assert.deepEqual(events.slice(-3).map(e=>e.event_type).sort(),['DATE_CHANGED','PRICE_CHANGED','STATUS_CHANGED']);
+ assert.equal(events.at(-1).snapshot.opening_price,1000000);
+ await db.query("update owner_saved_filters set active=true,created_at='2026-01-01',criteria=$2::jsonb where id=$1",[filterId,JSON.stringify({location:'Ostrava',propertyType:'',source:'',minPrice:100000,maxPrice:null})]);
+ await db.exec('set role service_role');
+ assert.equal(await renew(leaseA),true);
+ const complete=()=>db.query('select public.complete_auction_alert($1,$2::uuid[],$3) n',[events[0].id,[filterId],leaseA]);
+ assert.equal((await complete()).rows[0].n,1);
+ assert.equal((await complete()).rows[0].n,0,'queue completion is idempotent');
+ const alertFetch=async(url,init)=>{
+  if(url.includes('owner_saved_filters'))return Response.json((await db.query('select * from owner_saved_filters')).rows);
+  if(url.includes('auction_alert_events'))return Response.json((await db.query('select * from auction_alert_events where evaluated_at is null order by id limit $1',[Number(new URL(url).searchParams.get('limit'))])).rows);
+  const body=JSON.parse(init.body);
+  return Response.json((await db.query('select public.complete_auction_alert($1,$2::uuid[],$3) n',[body.p_event_id,body.p_filter_ids,body.p_lease_token])).rows[0].n);
+ };
+ const alertConfig={url:'https://local.test',secret:'test-only',leaseToken:leaseA};
+ assert.equal((await evaluatePendingAlerts(alertConfig,alertFetch)).evaluated,36);
+ const notificationCount=(await db.query('select count(*)::int n from owner_notifications')).rows[0].n;
+ assert.deepEqual(await evaluatePendingAlerts(alertConfig,alertFetch),{evaluated:0,notifications:0,pending:false});
+ assert.equal((await db.query('select count(*)::int n from owner_notifications')).rows[0].n,notificationCount);
+ await assert.rejects(()=>db.query('select public.complete_auction_alert($1,$2::uuid[],$3)',[events[1].id,[filterId],leaseB]),/lease lost/);
+ await db.exec('reset role');
+ await db.query(`insert into auction_alert_events(auction_id,event_type,snapshot)
+ select $1,'PRICE_CHANGED',$2::jsonb from generate_series(1,1101)`,[updated.auctionId,JSON.stringify({...events.at(-1).snapshot,metadata:{location:'Ostrava'},opening_price:1000000})]);
+ await db.exec('set role service_role');
+ assert.deepEqual(await evaluatePendingAlerts(alertConfig,alertFetch,{maxBatches:1}),{evaluated:500,notifications:500,pending:true});
+ assert.deepEqual(await evaluatePendingAlerts(alertConfig,alertFetch),{evaluated:601,notifications:601,pending:false});
+ assert.deepEqual(await evaluatePendingAlerts(alertConfig,alertFetch),{evaluated:0,notifications:0,pending:false});
+ assert.equal((await db.query('select count(*)::int n from owner_notifications')).rows[0].n,notificationCount+1101);
+ console.log('PostgreSQL alert backlog: 1101 events, continuation and replay passed');
+ const notification=(await db.query('select * from owner_notifications')).rows[0];
+ await db.query('update owner_notifications set read_at=now() where id=$1',[notification.id]);
+ assert.ok((await db.query('select read_at from owner_notifications where id=$1',[notification.id])).rows[0].read_at);
+ await db.exec('reset role');
+ for(const role of ['anon','authenticated']){
+  await db.exec('set role '+role);
+  await assert.rejects(()=>db.query('select * from owner_favorites'));
+  await assert.rejects(()=>db.query('select * from owner_saved_filters'));
+  await assert.rejects(()=>db.query('select * from owner_notifications'));
+  await assert.rejects(()=>db.query('select * from auction_alert_events'));
+ }
+ await db.exec('reset role');
+ // Structured evidence is synthetic; existing real fixtures have no lot identity.
+ const identity={authority:'094',officialAuctionId:'14121/21-568',proceeding:'094 EX 14121/21',notice:'568',lot:'1'};
+ const lot={source:'CEVD',url:'https://cevd.gov.cz/seznam-drazeb/detail/test-lot',title:'Rodinný dům Ostrava test',date:'2026-12-01T10:00:00Z',published:'',price:'1000000 Kč',location:'Ostrava',msk:true,status:'Published',identity};
+ const persist=x=>persistAuctionListing(x,{url:'https://local.test',secret:'test-only'},rpcFetch);
+ await db.exec('set role service_role');
+ const firstLot=await persist(lot);
+ const mirror={...lot,source:'Portál dražeb',url:'https://www.portaldrazeb.cz/drazba/test-lot',price:'900000 Kč',status:'Odročeno'};
+ const secondLot=await persist(mirror);
+ assert.equal(secondLot.auctionId,firstLot.auctionId);
+ assert.equal(secondLot.created,false);
+ assert.notEqual(secondLot.occurrenceId,firstLot.occurrenceId);
+ assert.equal((await persist(mirror)).occurrenceId,secondLot.occurrenceId);
+ assert.equal((await db.query('select opening_price from auctions where id=$1',[firstLot.auctionId])).rows[0].opening_price,'1000000.00','secondary source cannot oscillate price');
+ assert.equal((await db.query('select count(*)::int n from auction_alert_events where auction_id=$1',[firstLot.auctionId])).rows[0].n,1,'mirror replay creates no phantom change events');
+ const otherLot=await persist({...mirror,url:mirror.url+'-2',identity:{...identity,lot:'2'}});
+ assert.notEqual(otherLot.auctionId,firstLot.auctionId,'different lots in one proceeding must remain separate');
+ const weak=await persist({...mirror,url:mirror.url+'-weak',identity:{}});
+ assert.notEqual(weak.auctionId,firstLot.auctionId,'title/date/location is only a review candidate');
+ assert.ok((await db.query('select * from auction_duplicate_candidates')).rows.length>0);
+ const another=await persist({...lot,url:lot.url+'-ambiguous'});
+ assert.notEqual(another.auctionId,firstLot.auctionId,'same-source distinct item is not automatically merged');
+ const ambiguous=await persist({...mirror,source:'OKdražby',url:'https://okdrazby.cz/drazba/test-ambiguous'});
+ assert.notEqual(ambiguous.auctionId,firstLot.auctionId,'multiple matching canonical auctions are never chosen arbitrarily');
+ assert.notEqual(ambiguous.auctionId,another.auctionId);
+ const provenance=(await db.query('select source_url from auction_occurrences where auction_id=$1',[firstLot.auctionId])).rows;
+ assert.deepEqual(provenance.map(x=>x.source_url).sort(),[lot.url,mirror.url].sort());
+ await db.exec('reset role');
+ for(const role of ['anon','authenticated']){await db.exec('set role '+role);await assert.rejects(()=>db.query('select * from auction_duplicate_candidates'));await db.exec('reset role');}
+ console.log('PostgreSQL cross-source identity: merge, provenance, replay, different lots, weak/ambiguous candidates passed');
+ console.log('Price/date/status history, favorite idempotency, saved filters and owner table grants passed');
+ console.log('Real source fixtures → parser → normalization → persistence RPC → PostgreSQL → reader: 34 offers, repeat without duplicates, 4 MSK passed');
  const tables=await db.query("select relname from pg_class c join pg_namespace n on n.oid=c.relnamespace where n.nspname='public' and c.relkind='r' and not c.relrowsecurity");
  assert.deepEqual(tables.rows,[]);
  console.log('PostgreSQL: all migrations, crawl writes, source health, validation and RPC permissions passed');

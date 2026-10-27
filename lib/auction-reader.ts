@@ -4,9 +4,10 @@ export type AuctionReadConfig={url:string;secret:string};
 type Source={name?:string};
 type Occurrence={source_url?:string;source_status?:string;raw_data?:Record<string,unknown>;last_seen_at?:string;auction_sources?:Source|Source[]};
 type AuctionRow={
- title?:string;status?:string;primary_url?:string;opening_price?:number|string|null;
+ id?:string;title?:string;status?:string;primary_url?:string;opening_price?:number|string|null;
  auction_at?:string|null;published_at?:string|null;metadata?:Record<string,unknown>;
  auction_occurrences?:Occurrence[];
+ duplicate_left?:Array<{other_auction_id:string}>;duplicate_right?:Array<{auction_id:string}>;
 };
 
 const text=(v:unknown)=>typeof v==='string'?v:'';
@@ -18,7 +19,7 @@ function newestOccurrence(rows:Occurrence[]=[]){
 }
 
 export function auctionRowToListing(row:AuctionRow):Listing|null{
- const occurrence=newestOccurrence(row.auction_occurrences);
+ const occurrence=row.auction_occurrences?.find(o=>o.source_url===row.primary_url)??newestOccurrence(row.auction_occurrences);
  const raw=occurrence?.raw_data||row.metadata||{};
  const sourceRef=occurrence?.auction_sources;
  const sourceName=Array.isArray(sourceRef)?sourceRef[0]?.name:sourceRef?.name;
@@ -26,6 +27,9 @@ export function auctionRowToListing(row:AuctionRow):Listing|null{
  const title=text(row.title);
  if(!title||!url)return null;
  return {
+  auctionId:text(row.id)||undefined,
+  potentialDuplicateIds:[...new Set([...(row.duplicate_left??[]).map(x=>x.other_auction_id),...(row.duplicate_right??[]).map(x=>x.auction_id)])],
+  provenance:row.auction_occurrences?.map(o=>({source:text(o.raw_data?.source)||text(Array.isArray(o.auction_sources)?o.auction_sources[0]?.name:o.auction_sources?.name),url:text(o.source_url)})).filter(o=>o.source&&o.url)||(Array.isArray(raw.provenance)?raw.provenance as Array<{source:string;url:string}>:[]),
   source:text(raw.source)||text(sourceName)||'Uložená dražba',
   title,url,
   date:text(row.auction_at),
@@ -42,7 +46,7 @@ export async function readPersistedAuctions(
  options:{limit?:number;msk?:boolean;fetcher?:typeof fetch}={},
 ):Promise<Listing[]>{
  const limit=Math.max(1,Math.min(options.limit??250,1000));
- const select='title,status,primary_url,opening_price,auction_at,published_at,metadata,auction_occurrences(source_url,source_status,raw_data,last_seen_at,auction_sources(name))';
+ const select='id,title,status,primary_url,opening_price,auction_at,published_at,metadata,auction_occurrences(source_url,source_status,raw_data,last_seen_at,auction_sources(name)),duplicate_left:auction_duplicate_candidates!auction_duplicate_candidates_auction_id_fkey(other_auction_id),duplicate_right:auction_duplicate_candidates!auction_duplicate_candidates_other_auction_id_fkey(auction_id)';
  const url=`${config.url.replace(/\/$/,'')}/rest/v1/auctions?select=${encodeURIComponent(select)}&order=published_at.desc.nullslast,last_seen_at.desc&limit=${limit}`;
  const response=await (options.fetcher??fetch)(url,{headers:{apikey:config.secret,Authorization:`Bearer ${config.secret}`}});
  if(!response.ok)throw new Error(`Supabase auction read failed (${response.status}): ${(await response.text()).slice(0,500)}`);

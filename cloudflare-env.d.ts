@@ -1,5 +1,6 @@
 declare namespace Cloudflare {
   interface Env {
+    OWNER_USER_ID?: string;
     DB?: D1Database;
     BUCKET?: R2Bucket;
     SYNC_SECRET?: string;

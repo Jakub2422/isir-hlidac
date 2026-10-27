@@ -1,0 +1,25 @@
+name: Scheduled data collection
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: '17 * * * *'
+permissions:
+  contents: read
+concurrency:
+  group: isir-production-data-collection
+  cancel-in-progress: false
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22.13.0
+      - name: Collect auctions and insolvency events
+        env:
+          SYNC_BASE_URL: ${{ vars.SYNC_BASE_URL }}
+          COLLECTOR_SECRET: ${{ secrets.COLLECTOR_SECRET }}
+          SYNC_SECRET: ${{ secrets.SYNC_SECRET }}
+        run: node scripts/scheduled-sync.mjs
