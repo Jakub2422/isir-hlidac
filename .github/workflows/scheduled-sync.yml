@@ -1,8 +1,9 @@
 name: Scheduled data collection
 on:
   workflow_dispatch:
-  schedule:
-    - cron: '17 * * * *'
+# Hourly production updates use the existing authorized ChatGPT Site task.
+# Keep GitHub dispatch available for a future configured deployment; do not
+# enable a second schedule before credentials and private Site access pass E2E.
 permissions:
   contents: read
 concurrency:
