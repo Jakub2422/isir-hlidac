@@ -71,13 +71,25 @@ export async function elektronickeDrazby():Promise<Listing[]>{const base='https:
 export async function uzsvm(msk:boolean):Promise<Listing[]>{const response=await fetch('https://www.nabidkamajetku.gov.cz/api/Property/AuctionList',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ListType:'all',Page:1,PageSize:msk?100:65,Order:'PublishedFrom',OrderDesc:'true',CategoryId:0,LocalityId:msk?'r0008':0}),signal:AbortSignal.timeout(18000)});if(!response.ok)throw Error('ÚZSVM HTTP '+response.status);const raw=await response.text();if(raw.length>4_000_000)throw Error('Příliš velká odpověď');const data=JSON.parse(raw) as {Auctions:Array<{Id:number;Name:string;CategoryName:string;DistrictName?:string;Price?:string;StartDate?:string;UpdatedDate?:string;StatusName?:string}>};if(!Array.isArray(data.Auctions))throw Error('Neplatná odpověď ÚZSVM');const districts=['Ostrava-město','Karviná','Frýdek-Místek','Opava','Nový Jičín','Bruntál'];return data.Auctions.filter(x=>/pozem|stavb|byt|dům|nemovit|garáž|jednotk|budov/i.test(x.CategoryName||'')).map(x=>({source:'ÚZSVM – aukce majetku',title:x.Name,url:`https://www.nabidkamajetku.gov.cz/Home/AuctionDetail/${x.Id}`,date:x.StartDate||'',published:x.UpdatedDate||'',price:x.Price?`${x.Price} Kč`:'',location:x.DistrictName||'',msk:districts.includes(x.DistrictName||''),status:x.StatusName||'Aktuální nabídka'}))}
 export async function insolvencniZamery():Promise<Listing[]>{const base='https://www.portaldrazeb.cz/insolvencni-zamery';const {body}=await get(base,4_000_000);const encoded=/data-intentions="([^"]+)"/.exec(body)?.[1];if(!encoded)throw Error('Seznam záměrů není dostupný');const records=JSON.parse(decode(encoded)) as Array<{title:string;hash:string;status:string;publishedAt:string;monetizationTo?:string;minimumPrice?:number;item:{category?:string;location?:{county?:{name?:string};city?:{name?:string}}}}>;if(!Array.isArray(records))throw Error('Neplatný seznam záměrů');return records.filter(x=>x.item?.category?.startsWith('Nemovitosti')&&x.status!=='finished').map(x=>({source:'Insolvenční záměry',title:x.title,url:safeLink('/insolvencni-zamer/'+x.hash,base),date:x.monetizationTo||'',published:x.publishedAt||'',price:x.minimumPrice?`${x.minimumPrice.toLocaleString('cs-CZ')} Kč`:'',location:x.item.location?.city?.name||x.title,msk:x.item.location?.county?.name==='Moravskoslezský kraj'||region.test(x.title),status:'Záměr ke zpeněžení'}))}
 export async function exdrazby(msk:boolean):Promise<Listing[]>{
+ const pageSize=100,maxPages=25;
  const filters:Array<{property:string;operator:string;value:string|number}>=[{property:'auction.status',operator:'eq',value:'prepared'}];
  if(msk)filters.push({property:'auctionAddress.region',operator:'eq',value:14});
- const params=new URLSearchParams({page:'1',perPage:'100',sort:JSON.stringify({property:'auction.timeCreated',direction:'DESC'}),filter:JSON.stringify(filters)});
- const {body}=await get('https://exdrazby.cz/api/web/auction/?'+params,4_000_000);
- const data=JSON.parse(body) as {data:Array<{id:number;title:string;startDt?:string;minimalBid?:number;parentStatus?:string;statusTranslation?:string;auctionCategory?:{parentTitle?:string};auctionAddress?:{city?:string;region?:{name?:string}}}>};
- if(!Array.isArray(data.data))throw Error('Neplatná odpověď exdrazby');
- return data.data.filter(x=>x.parentStatus==='prepared'&&x.auctionCategory?.parentTitle==='Nemovitosti').map(x=>({source:'exdrazby',title:x.title,url:`https://www.exdrazby.cz/drazba/${x.id}`,date:x.startDt||'',published:'',price:x.minimalBid?`${x.minimalBid.toLocaleString('cs-CZ')} Kč`:'',location:x.auctionAddress?.city||'',msk:x.auctionAddress?.region?.name==='Moravskoslezský kraj',status:x.statusTranslation||'Připravovaná dražba'}));
+ type Item={id:number;title:string;startDt?:string;minimalBid?:number;parentStatus?:string;statusTranslation?:string;auctionCategory?:{parentTitle?:string};auctionAddress?:{city?:string;region?:{name?:string}}};
+ const all:Item[]=[],seen=new Set<number>();
+ for(let page=1;page<=maxPages;page++){
+  const params=new URLSearchParams({page:String(page),perPage:String(pageSize),sort:JSON.stringify({property:'auction.timeCreated',direction:'DESC'}),filter:JSON.stringify(filters)});
+  const {body}=await get('https://exdrazby.cz/api/web/auction/?'+params,4_000_000);
+  const data=JSON.parse(body) as {data?:Item[]};
+  if(!Array.isArray(data.data)||data.data.length>pageSize)throw Error('Neplatná odpověď exdrazby');
+  for(const item of data.data){
+   if(!Number.isSafeInteger(item.id)||seen.has(item.id))throw Error('exdrazby: neplatné nebo opakované ID mezi stránkami');
+   seen.add(item.id);all.push(item);
+  }
+  if(data.data.length<pageSize){
+   return all.filter(x=>x.parentStatus==='prepared'&&x.auctionCategory?.parentTitle==='Nemovitosti').map(x=>({source:'exdrazby',title:x.title,url:`https://www.exdrazby.cz/drazba/${x.id}`,date:x.startDt||'',published:'',price:x.minimalBid?`${x.minimalBid.toLocaleString('cs-CZ')} Kč`:'',location:x.auctionAddress?.city||'',msk:x.auctionAddress?.region?.name==='Moravskoslezský kraj',status:x.statusTranslation||'Připravovaná dražba'}));
+  }
+ }
+ throw Error('exdrazby: dosažen limit stránek; sběr není úplný');
 }
 export async function spravaZeleznic():Promise<Listing[]>{
  const base='https://iframe.ipp.spravazeleznic.cz/prodeje-pronajmy/api/iframe/advertisements';
