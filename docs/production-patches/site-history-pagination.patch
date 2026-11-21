@@ -1,0 +1,52 @@
+diff --git a/app/api/insolvencies/route.ts b/app/api/insolvencies/route.ts
+index ed8b35a..50b2248 100644
+--- a/app/api/insolvencies/route.ts
++++ b/app/api/insolvencies/route.ts
+@@ -1,9 +1,9 @@
+-import {queryIsir,readIsirFilters} from '@/lib/isir-catalogue';
++import {queryIsir,readIsirFilters,readIsirOffset} from '@/lib/isir-catalogue';
+ import {privateHeaders} from '@/lib/api-security';
+ export const runtime='edge';
+ export async function GET(request:Request){
+- const p=new URL(request.url).searchParams;let filters;
+- try{filters=readIsirFilters(p)}catch(e){return Response.json({error:e instanceof Error?e.message:'Neplatný filtr'},{status:400,headers:privateHeaders})}
+- try{return Response.json(await queryIsir(filters,Math.min(100000,Math.max(0,Number(p.get('offset'))||0))),{headers:privateHeaders})}
++ const p=new URL(request.url).searchParams;let filters,offset;
++ try{filters=readIsirFilters(p);offset=readIsirOffset(p)}catch(e){return Response.json({error:e instanceof Error?e.message:'Neplatný filtr'},{status:400,headers:privateHeaders})}
++ try{return Response.json(await queryIsir(filters,offset),{headers:privateHeaders})}
+  catch{return Response.json({error:'Uložené insolvence se nepodařilo načíst.'},{status:503,headers:privateHeaders})}
+ }
+diff --git a/lib/isir-catalogue.ts b/lib/isir-catalogue.ts
+index 54022d1..80a85cf 100644
+--- a/lib/isir-catalogue.ts
++++ b/lib/isir-catalogue.ts
+@@ -2,6 +2,12 @@ import {rawDatabase} from '@/db';
+ import {normalizeSearch} from './catalogue-core';
+ import type {IsirEvent} from './isir';
+ export type IsirFilters={query:string;person:string;ico:string;role:string;city:string;kind:string};
++export function readIsirOffset(p:URLSearchParams){
++ const raw=p.get('offset');
++ if(raw===null)return 0;
++ if(!/^\d+$/.test(raw)||!Number.isSafeInteger(Number(raw)))throw Error('Neplatný začátek stránky.');
++ return Number(raw);
++}
+ export function readIsirFilters(p:URLSearchParams):IsirFilters{
+  const text=(k:string,n=100)=>(p.get(k)||'').trim().slice(0,n),ico=text('ico',20).replace(/\s/g,'');
+  if(ico&&!/^\d{1,8}$/.test(ico))throw Error('IČO musí obsahovat nejvýše 8 číslic.');
+diff --git a/scripts/test-catalogue.mjs b/scripts/test-catalogue.mjs
+index aa0e94c..d259315 100644
+--- a/scripts/test-catalogue.mjs
++++ b/scripts/test-catalogue.mjs
+@@ -39,6 +39,12 @@ try{
+  assert.equal(core.csvCell('=HYPERLINK("evil")'),'"\'=HYPERLINK(""evil"")"');
+  assert.equal(today.publicationDay({...base,published:''}),'');assert.equal(today.publicationDay({...base,source:'ÚZSVM – aukce majetku'}),'');
+  const isir=await import(pathToFileURL(join(temp,'isir-catalogue.js'))),xml=await import(pathToFileURL(join(temp,'isir-xml.js'))),notifications=await import(pathToFileURL(join(temp,'notifications.js')));
++ assert.equal(isir.readIsirOffset(new URLSearchParams()),0);
++ assert.equal(isir.readIsirOffset(new URLSearchParams('offset=100050')),100050);
++ for(const offset of ['-1','1.5','Infinity','NaN','1e6','9007199254740992'])assert.throws(()=>isir.readIsirOffset(new URLSearchParams({offset})));
++ const beyondOldLimit=await isir.queryIsir(isir.readIsirFilters(new URLSearchParams()),100050);
++ assert.equal(beyondOldLimit.offset,100050);
++ assert.equal(beyondOldLimit.items.length,0);
+  const note='<p:udalost><p:osoba><p:idOsoby>42</p:idOsoby><p:druhRoleVRizeni>DLUŽNÍK</p:druhRoleVRizeni><p:jmeno>Jan</p:jmeno><p:nazevOsoby>Novák &amp; syn</p:nazevOsoby><p:ic>123</p:ic></p:osoba></p:udalost>';
+  const people=xml.notePeople(note);assert.equal(people[0].name,'Jan Novák & syn');assert.equal(people[0].ico,'00000123');
+  const event={id:100,spis:'KSOS 1 INS 42/2026',publishedAt:first,description:'Soupis majetku',documentId:'123',people};
