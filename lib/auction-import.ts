@@ -35,35 +35,97 @@ export async function cevd(msk:boolean):Promise<Listing[]>{
 }
 export async function financial():Promise<Listing[]>{const {body}=await get('https://financnisprava.gov.cz/cs/financni-sprava/drazby-financni-spravy/drazby-prehled?rss=1');if(!/<rss\b/i.test(body))throw Error('Neplatný RSS');const out:Listing[]=[];for(const m of body.matchAll(/<item>([\s\S]*?)<\/item>/gi)){const field=(k:string)=>decode(new RegExp('<'+k+'>([\\s\\S]*?)<\\/'+k+'>','i').exec(m[1])?.[1]||'');const title=field('description'),location=title,url=safeLink(field('link'),'https://financnisprava.gov.cz');if(!property.test(title)||!url.startsWith('https://financnisprava.gov.cz/'))continue;out.push({source:'Finanční správa',title,url,date:field('pubDate'),published:'',price:'',location,msk:region.test(location),status:'Aktuální v RSS'})}return unique(out)}
 export async function okdrazby():Promise<Listing[]>{const base='https://okdrazby.cz/';const {body}=await get(base);const a:Listing[]=[];for(const m of body.matchAll(/<a[^>]+class="AuctionsList_auctionName[^"\n]*"[^>]+href="([^"]+)"[^>]*>([\s\S]*?)<\/a>/gi)){const title=decode(m[2]);if(!property.test(title))continue;const tail=body.slice(m.index,m.index+850);const date=decode(/AuctionsList_auctionExactDateTime[^>]*>(.*?)<\/span>/i.exec(tail)?.[1]||'');const url=safeLink(m[1],base);a.push({source:'OKdražby',title,url,date,published:'',price:'',location:title,msk:region.test(title),status:'Zveřejněno na portálu'})}return unique(a)}
-export async function prokonzulta():Promise<Listing[]>{const base='https://www.prokonzulta.cz/nabidky';const {body}=await get(base);const a:Listing[]=[];for(const m of body.matchAll(/<a\s+href="(https:\/\/www\.prokonzulta\.cz\/(?:drazba|aukce|prodej)\/[^" ]+)"[^>]*>[\s\S]{0,1800}?<h3 class="offer-label">([\s\S]*?)<\/h3>/gi)){const title=decode(m[2]),url=safeLink(m[1],base);if(!property.test(title))continue;a.push({source:'Prokonzulta',title,url,date:'',published:'',price:'',location:title,msk:region.test(title),status:'Zveřejněno na portálu'})}return unique(a)}
+const prokonzultaOrigin='https://www.prokonzulta.cz';
+const prokonzultaCategory='1921b5dd-a67e-40f8-9e32-b90e7cf40bda';
+const prokonzultaMsk='3d23f9ff-1c39-4412-a18a-6098a8345381';
+function attr(tag:string,name:string){return new RegExp('(?:^|\\s)'+name+'=(?:"([^"]*)"|\'([^\']*)\')','i').exec(tag)?.slice(1).find(x=>x!==undefined)||''}
+async function scanProkonzulta(msk:boolean):Promise<{items:Listing[];complete:boolean}>{
+ const categoryPath='/category/'+prokonzultaCategory;
+ const first=new URL(categoryPath,prokonzultaOrigin);
+ if(msk)first.searchParams.set('region',prokonzultaMsk);
+ const seen=new Set<string>(),items:Listing[]=[];
+ let next=first.href,total:number|undefined,read=0;
+ const started=Date.now();
+ for(let page=0;next&&page<20&&(page===0||Date.now()-started<45000);page++){
+  if(seen.has(next))throw Error('Prokonzulta opakuje stránku');
+  seen.add(next);
+  const {body,res}=await get(next);
+  if(res.url&&new URL(res.url).origin!==first.origin)throw Error('Prokonzulta přesměrovala katalog mimo zdroj');
+  if(msk&&!/<span\b[^>]*class="badge badge--base badge--3"[^>]*>\s*Moravskoslezský kraj\b/i.test(body))throw Error('Prokonzulta nepotvrdila regionální filtr');
+  const m=/(\d+)\s*(?:předmět(?:y|ů)?|nabídek)\s*<\//i.exec(body);
+  if(!m)throw Error('Prokonzulta nepotvrdila počet nabídek');
+  const expected=Number(m[1]);
+  if(!Number.isSafeInteger(expected)||expected<0)throw Error('Prokonzulta: neplatný počet nabídek');
+  if(total!==undefined&&total!==expected)throw Error('Počet nabídek Prokonzulta se během sběru změnil');
+  total=expected;
+  const list=body.slice(m.index+m[0].length).split('<transition name="map-slide"',1)[0];
+  const cards=[...list.matchAll(/(<a\b[^>]*>)((?:(?!<\/a>)[\s\S])*)<\/a>/gi)].filter(x=>attr(x[1],'class').split(/\s+/).includes('offer-item'));
+  if(!cards.length&&total!==0)throw Error('Prokonzulta: chybí karty nabídek');
+  for(const card of cards){
+   const url=safeLink(attr(card[1],'href'),next),html=card[2];
+   if(!url||new URL(url).origin!==first.origin||!/^\/(?:drazba|aukce|prodej|primy-prodej|licitace|nabidka|vyberove-rizeni|pronajem)\//i.test(new URL(url).pathname))throw Error('Prokonzulta: neznámý odkaz na nabídku');
+   const title=decode(/<div[^>]*class="[^"]*paragraph--medium[^"]*fw-bold[^"]*"[^>]*>([\s\S]*?)<\/div>/i.exec(html)?.[1]||'');
+   if(!title)throw Error('Prokonzulta: chybí název nabídky');
+   const price=decode(/class="offer-item--content--price"[^>]*>([\s\S]*?)<\/div>/i.exec(html)?.[1]||'');
+   const bottom=/<div[^>]*class="[^"]*offer-item--content--bottom[^"]*"[^>]*>([\s\S]*?)<\/div>/i.exec(html)?.[1]||'';
+   const date=decode(bottom).match(/\b\d{1,2}\.\s*\d{1,2}\.\s*\d{4}\b/)?.[0]||'';
+   items.push({source:'Prokonzulta',title,url,date,published:'',price,location:title,msk:msk||region.test(title),status:'Zveřejněno na portálu'});
+  }
+  read+=cards.length;
+  const nav=/<div class="pagination">([\s\S]*?)<\/div>/i.exec(body)?.[1]||'';
+  const link=[...nav.matchAll(/<a\b[^>]*>/gi)].find(x=>attr(x[0],'class').split(/\s+/).includes('next'));
+  if(!link){next='';break}
+  const u=new URL(attr(link[0],'href').replace(/&amp;/g,'&'),next);
+  if(u.origin!==first.origin||!(new RegExp('^(?:/nabidky|'+categoryPath+')/page-\\d+$').test(u.pathname)||(u.pathname===categoryPath&&/^\d+$/.test(u.searchParams.get('page')||'')))||(msk&&u.searchParams.get('region')!==prokonzultaMsk))throw Error('Prokonzulta: neplatný odkaz na další stránku');
+  if(u.pathname!==categoryPath&&!u.pathname.startsWith(categoryPath+'/')&&u.searchParams.get('category')!==prokonzultaCategory)throw Error('Prokonzulta ztratila filtr nemovitostí');
+  next=u.href;
+ }
+ const distinct=unique(items);
+ if(!next&&(read!==total||distinct.length!==total))throw Error('Prokonzulta nepotvrdila celý katalog');
+ // The national pass has no authoritative location on the list cards.
+ return {items:distinct,complete:msk&&!next};
+}
+export async function prokonzulta(msk=false):Promise<Listing[]>{return (await scanProkonzulta(msk)).items}
 export async function asis():Promise<Listing[]>{const base='https://portal.asis.cz/Katalog/-/1/';const {body}=await get(base);const a:Listing[]=[];for(const m of body.matchAll(/<a\s+href="([.\/]*Majetek\/Detail\/[^" ]+)"[^>]*>([\s\S]*?)<\/a>[\s\S]{0,170}?<p[^>]*>([\s\S]*?)<\/p>/gi)){const title=decode(m[3])||decode(m[2]);const url=safeLink(m[1],base);a.push({source:'ASIS – insolvenční majetek',title,url,date:'',published:'',price:'',location:title,msk:region.test(title),status:'Zveřejněno na portálu'})}return unique(a)}
 export async function karvina():Promise<Listing[]>{const base='https://aukce.karvina.cz/';const {body}=await get(base);const a:Listing[]=[];for(const m of body.matchAll(/<div[^>]+class="[^"]*drazbaitem\s+([^"]+)"[\s\S]*?<a href="(https:\/\/aukce\.karvina\.cz\/drazba\/[^" ]+)"[^>]*>\s*<h4>([\s\S]*?)<\/h4>/gi)){if(/ended|ukončen/i.test(m[1]))continue;const title=decode(m[3]),url=safeLink(m[2],base);a.push({source:'Aukce města Karviná',title,url,date:'',published:'',price:'',location:'Karviná',msk:true,status:'Aktivní aukce'})}return unique(a)}
-export async function portalDrazeb(msk:boolean):Promise<Listing[]>{
- const base='https://www.portaldrazeb.cz/drazby';
+const mskDistricts=['Ostrava-město','Karviná','Frýdek-Místek','Opava','Nový Jičín','Bruntál'];
+type PortalLocation={district_name?:string;county?:{county_name?:string};city?:{city_name?:string}};
+type PortalAuction={item?:{title?:string;category?:{full_path?:string};location_district?:PortalLocation};location_district?:PortalLocation;hash?:string;status?:string;link?:string;start_at?:string;published_at?:string;item_price?:number};
+async function portalDrazebPage(msk:boolean,page=0,info?:{count:number}):Promise<Listing[]>{
+ const base='https://www.portaldrazeb.cz/drazby',offset=page*80;
  const {body,res}=await get(base);
  const csrf=/<meta name="csrf-token" content="([^"]+)"/.exec(body)?.[1];
- const cookie=res.headers.get('set-cookie')?.split(';')[0];
- if(!csrf||!cookie)throw Error('Relace portálu není dostupná');
- const pageSize=100,maxPages=5,a:Listing[]=[];
- const filter:Record<string,unknown>={category:[1],sort:'desc',sort_by:'published_at',limit:pageSize,offset:0};
- if(msk)filter.county_item=['Ostrava-město','Karviná','Frýdek-Místek','Opava','Nový Jičín','Bruntál'];
- for(let page=0;page<maxPages;page++){
-  filter.offset=page*pageSize;
-  const response=await fetch(base+'.json',{method:'PUT',headers:{'Content-Type':'application/json','X-CSRF-TOKEN':csrf,'Cookie':cookie},body:JSON.stringify({filter}),signal:AbortSignal.timeout(18000)});
-  if(!response.ok)throw Error('Portál dražeb HTTP '+response.status);
-  const raw=await response.text();
-  if(raw.length>3_000_000)throw Error('Příliš velká odpověď');
-  const j=JSON.parse(raw) as Record<string,unknown>;
-  const entries=Object.entries(j).filter(([key,value])=>/^\d+$/.test(key)&&!!value&&typeof value==='object');
-  for(const [,value] of entries){
-   const x=value as {item?:{title?:string;category?:{full_path?:string};location_district?:{district_name?:string;county?:{county_name?:string}}};status?:string;link?:string;start_at?:string;published_at?:string;item_price?:number};
-   const title=decode(x.item?.title||''),url=safeLink(x.link||'',base),location=x.item?.location_district?.district_name||title;
-   if(!x.item?.category?.full_path?.startsWith('/Nemovitosti')||!url||x.status==='finished')continue;
-   a.push({source:'Portál dražeb',title,url,date:x.start_at||'',published:x.published_at||'',price:x.item_price?`${x.item_price.toLocaleString('cs-CZ')} Kč`:'',location,msk:msk||x.item?.location_district?.county?.county_name==='Moravskoslezský kraj'||region.test(title),status:x.status||'Aktuální'});
-  }
-  if(entries.length<pageSize)break;
+ const cookieHeaders=typeof res.headers.getSetCookie==='function'?res.headers.getSetCookie():(res.headers as Headers&{getAll?:(name:string)=>string[]}).getAll?.('Set-Cookie')??[];
+ const cookies=cookieHeaders.map(v=>v.split(';',1)[0]).join('; ');
+ if(!csrf||!cookies)throw Error('Relace portálu není dostupná');
+ const today=new Date().toLocaleDateString('sv-SE',{timeZone:'Europe/Prague'});
+ const filter:Record<string,unknown>={category:[1],sort:'asc',sort_by:'start',limit:80,offset,start_at_from:today};
+ if(msk)filter.county_item=mskDistricts;
+ const response=await fetch(base+'.json',{method:'PUT',headers:{'Accept':'application/json','Content-Type':'application/json','X-CSRF-TOKEN':csrf,'Cookie':cookies},body:JSON.stringify({filter}),signal:AbortSignal.timeout(18000)});
+ if(!response.ok)throw Error('Portál dražeb HTTP '+response.status);
+ const raw=await response.text();
+ if(raw.length>3_000_000)throw Error('Příliš velká odpověď');
+ const j=JSON.parse(raw) as Record<string,unknown>;
+ if(!j||typeof j!=='object'||Array.isArray(j))throw Error('Portál dražeb: neplatná struktura');
+ const total=j['@count'],records=Object.entries(j).filter(([k])=>/^\d+$/.test(k));
+ if(typeof total!=='number'||!Number.isSafeInteger(total)||total<0||records.length!==Math.max(0,Math.min(80,total-offset)))throw Error('Portál dražeb: neověřený počet nabídek stránky');
+ if(info)info.count=records.length;
+ const a:Listing[]=[];
+ for(const [,value] of records){
+  if(!value||typeof value!=='object')throw Error('Portál dražeb: neplatná nabídka');
+  const x=value as PortalAuction;
+  const title=decode(x.item?.title||''),url=safeLink(x.link||'',base),d=x.item?.location_district||x.location_district;
+  if(!title||!url||new URL(url).origin!==new URL(base).origin||!x.item?.category?.full_path)throw Error('Portál dražeb: chybí identita nabídky');
+  if(!/^\/Nemovitosti(?:\/|$)/.test(x.item.category.full_path)||x.status==='finished')continue;
+  const district=d?.district_name||'',regionName=d?.county?.county_name||'',municipality=d?.city?.city_name||'';
+  const inRegion=regionName?regionName==='Moravskoslezský kraj':district?mskDistricts.includes(district):msk||region.test(title);
+  a.push({source:'Portál dražeb',title,url,date:x.start_at||'',published:x.published_at||'',price:typeof x.item_price==='number'?`${x.item_price.toLocaleString('cs-CZ')} Kč`:'',location:municipality||district||title,msk:inRegion,status:x.status||'Aktuální'});
  }
- return unique(a)
+ return unique(a);
+}
+export async function portalDrazeb(msk:boolean):Promise<Listing[]>{
+ const items:Listing[]=[];for(let page=0;page<10;page++){const info={count:-1};items.push(...await portalDrazebPage(msk,page,info));if(info.count<80)return unique(items)}
+ return unique(items)
 }
 export async function portalElektronickych(msk:boolean):Promise<Listing[]>{const base='https://www.portal-elektronickych-drazeb.cz'+(msk?'/kraj-moravskoslezsky/':'/drazby/');const {body}=await get(base);const a:Listing[]=[];for(const m of body.matchAll(/<div class="drazba-home">[\s\S]{0,700}?<div class="drazba-title"><a href="([^"]+)">([\s\S]*?)<\/a>/gi)){const title=decode(m[2]),url=safeLink(m[1],base);a.push({source:'Portál elektronických dražeb',title,url,date:'',published:'',price:'',location:title,msk:msk||region.test(title),status:'Zveřejněno na portálu'})}return unique(a)}
 export async function drazbyProst():Promise<Listing[]>{const base='https://www.drazbyprost.cz/';const {body}=await get(base);const a:Listing[]=[];for(const m of body.matchAll(/<h2[^>]*><a href="(\/\d+-[^" ]+)"[^>]*>([\s\S]*?)<\/a><\/h2>/gi)){const title=decode(m[2]),url=safeLink(m[1],base);if(!property.test(title))continue;a.push({source:'DražbyProst',title,url,date:'',published:'',price:'',location:title,msk:region.test(title),status:'Zveřejněno na portálu'})}return unique(a)}
