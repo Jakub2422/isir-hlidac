@@ -44,7 +44,8 @@ export async function portalDrazeb(msk:boolean):Promise<Listing[]>{
  const csrf=/<meta name="csrf-token" content="([^"]+)"/.exec(body)?.[1];
  const cookie=res.headers.get('set-cookie')?.split(';')[0];
  if(!csrf||!cookie)throw Error('Relace portálu není dostupná');
- const pageSize=100,maxPages=5,a:Listing[]=[];
+ const pageSize=100,maxPages=10,a:Listing[]=[];
+ const seenIds=new Set<string>();
  const filter:Record<string,unknown>={category:[1],sort:'desc',sort_by:'published_at',limit:pageSize,offset:0};
  if(msk)filter.county_item=['Ostrava-město','Karviná','Frýdek-Místek','Opava','Nový Jičín','Bruntál'];
  for(let page=0;page<maxPages;page++){
@@ -54,16 +55,22 @@ export async function portalDrazeb(msk:boolean):Promise<Listing[]>{
   const raw=await response.text();
   if(raw.length>3_000_000)throw Error('Příliš velká odpověď');
   const j=JSON.parse(raw) as Record<string,unknown>;
-  const entries=Object.entries(j).filter(([key,value])=>/^\d+$/.test(key)&&!!value&&typeof value==='object');
+  if(!j||typeof j!=='object'||Array.isArray(j))throw Error('Portál dražeb: neplatná odpověď');
+  const entries=Object.entries(j).filter(([key])=>/^\d+$/.test(key));
+  if(entries.some(([,value])=>!value||typeof value!=='object'))throw Error('Portál dražeb: neplatná nabídka');
+  const declared=j['@count'];
+  if(declared!==undefined&&(!Number.isSafeInteger(declared)||Number(declared)<0))throw Error('Portál dražeb: neplatný počet');
+  if(typeof declared==='number'&&entries.length!==Math.min(pageSize,Math.max(0,declared-page*pageSize)))throw Error('Portál dražeb: neúplná stránka');
+  for(const [id] of entries){if(seenIds.has(id))throw Error('Portál dražeb: opakované ID');seenIds.add(id)}
   for(const [,value] of entries){
    const x=value as {item?:{title?:string;category?:{full_path?:string};location_district?:{district_name?:string;county?:{county_name?:string}}};status?:string;link?:string;start_at?:string;published_at?:string;item_price?:number};
    const title=decode(x.item?.title||''),url=safeLink(x.link||'',base),location=x.item?.location_district?.district_name||title;
    if(!x.item?.category?.full_path?.startsWith('/Nemovitosti')||!url||x.status==='finished')continue;
    a.push({source:'Portál dražeb',title,url,date:x.start_at||'',published:x.published_at||'',price:x.item_price?`${x.item_price.toLocaleString('cs-CZ')} Kč`:'',location,msk:msk||x.item?.location_district?.county?.county_name==='Moravskoslezský kraj'||region.test(title),status:x.status||'Aktuální'});
   }
-  if(entries.length<pageSize)break;
+  if(entries.length<pageSize)return unique(a);
  }
- return unique(a)
+ throw Error('Portál dražeb: dosažen limit stránek; katalog může být neúplný')
 }
 export async function portalElektronickych(msk:boolean):Promise<Listing[]>{const base='https://www.portal-elektronickych-drazeb.cz'+(msk?'/kraj-moravskoslezsky/':'/drazby/');const {body}=await get(base);const a:Listing[]=[];for(const m of body.matchAll(/<div class="drazba-home">[\s\S]{0,700}?<div class="drazba-title"><a href="([^"]+)">([\s\S]*?)<\/a>/gi)){const title=decode(m[2]),url=safeLink(m[1],base);a.push({source:'Portál elektronických dražeb',title,url,date:'',published:'',price:'',location:title,msk:msk||region.test(title),status:'Zveřejněno na portálu'})}return unique(a)}
 export async function drazbyProst():Promise<Listing[]>{const base='https://www.drazbyprost.cz/';const {body}=await get(base);const a:Listing[]=[];for(const m of body.matchAll(/<h2[^>]*><a href="(\/\d+-[^" ]+)"[^>]*>([\s\S]*?)<\/a><\/h2>/gi)){const title=decode(m[2]),url=safeLink(m[1],base);if(!property.test(title))continue;a.push({source:'DražbyProst',title,url,date:'',published:'',price:'',location:title,msk:region.test(title),status:'Zveřejněno na portálu'})}return unique(a)}
